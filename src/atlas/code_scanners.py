@@ -112,7 +112,7 @@ def is_ignored(path: Path, project: Path) -> bool:
         return True
     return any(
         part.casefold() in IGNORED_DIRS
-        or part.casefold().startswith((".pytest", ".test-", ".build-", ".publish-test-"))
+        or part.casefold().startswith((".pytest", ".test-", ".build-", ".publish-test-", ".review-"))
         for part in parts
     )
 

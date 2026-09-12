@@ -25,6 +25,7 @@ STOP_PATH = data_dir() / "monitor.stop"
 SKIP_PARTS = {
     ".git", ".hg", ".svn", ".cache", ".pytest_cache", "__pycache__", "node_modules",
     ".venv", "venv", "AppData", "$Recycle.Bin", "System Volume Information",
+    ".review-",
 }
 SENSITIVE_NAMES = {".env", "id_rsa", "id_ed25519", "credentials", "secrets", "tokens"}
 RISK_EXTENSIONS = {".exe", ".dll", ".ps1", ".bat", ".cmd", ".vbs", ".js", ".py", ".service"}
@@ -83,7 +84,8 @@ class ChangeHandler(FileSystemEventHandler):
             parts = Path(source).parts
         except (OSError, ValueError):
             return
-        if any(part in SKIP_PARTS for part in parts):
+        if any(part in SKIP_PARTS or (".review-" in SKIP_PARTS and part.casefold().startswith(".review-"))
+               or (part.casefold().startswith(".pytest") and ".pytest_cache" in SKIP_PARTS) for part in parts):
             return
         kind = str(event.event_type)
         key = f"{kind}:{source.lower()}"

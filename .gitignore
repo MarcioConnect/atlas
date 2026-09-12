@@ -18,6 +18,7 @@ build/
 .publish-test-venv/
 .review-*/
 .review-*
+.diag-*
 release/
 *.spec
 
