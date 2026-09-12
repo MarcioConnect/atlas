@@ -10,6 +10,25 @@ watch mode does not call an LLM and does not consume AI tokens.
 > Alpha software. ATLAS reduces review time but does not guarantee that a
 > system or project is free of vulnerabilities.
 
+## Download rápido (Windows)
+
+Quer apenas usar? Baixe o executável pronto na página da release:
+
+**[Baixar ATLAS-Security-Agent.exe — v0.1.0](https://github.com/MarcioConnect/atlas/releases/download/v0.1.0/ATLAS-Security-Agent.exe)**
+
+Depois, no PowerShell:
+
+```powershell
+.\ATLAS-Security-Agent.exe --version
+.\ATLAS-Security-Agent.exe monitor start
+```
+
+Não precisa instalar Python, Git ou abrir navegador. A logo usada pelo
+executável está disponível em [`assets/atlas.ico`](assets/atlas.ico).
+
+Para instalar como pacote Python e usar o comando `atlas`, siga a seção de
+instalação abaixo.
+
 ## v0.1 implementation status
 
 The core workflow is functional:
@@ -60,8 +79,8 @@ Native scanner or another available scanner.
 
 ## Installation
 
-Download the GitHub release ZIP, extract it, open PowerShell in that folder,
-and run:
+To install from the source ZIP, use **Code > Download ZIP** on GitHub, extract
+it, open PowerShell in that folder, and run:
 
 ```powershell
 py -m pip install .
