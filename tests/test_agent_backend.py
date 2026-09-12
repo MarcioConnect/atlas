@@ -20,7 +20,7 @@ def test_agent_launches_hermes_tui_in_same_terminal(monkeypatch, tmp_path: Path)
     assert "--tui" in captured["command"]
     assert captured["command"][captured["command"].index("--profile") + 1] == "atlas"
     assert captured["command"][captured["command"].index("--provider") + 1] == "opencode-free"
-    assert "nemotron-3-ultra-free" in captured["command"]
+    assert "deepseek-v4-flash-free" in captured["command"]
     # ATLAS intentionally displays its own branded banner; the legacy Hermes
     # banner is replaced by the ⚕ ATLAS header in the local TUI skin.
     assert captured["env"]["ATLAS_HIDE_HERMES_BANNER"] == "0"

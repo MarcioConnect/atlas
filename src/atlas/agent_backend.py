@@ -5,11 +5,11 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from atlas.config import Settings
+from atlas.config import DEFAULT_AGENT_MODEL, Settings
 
 PROFILE_NAME = "atlas"
-DEFAULT_MODEL = "nemotron-3-ultra-free"
-PROFILE_VERSION = "7"
+DEFAULT_MODEL = DEFAULT_AGENT_MODEL
+PROFILE_VERSION = "8"
 
 ATLAS_SKIN = r'''name: atlas
 description: ATLAS cyber minimalista
@@ -105,6 +105,13 @@ instalar software, reiniciar serviços, alterar containers ou executar qualquer 
 que mude o sistema. Nunca explore vulnerabilidades nem contorne controles. Nunca
 mostre ou persista senhas, tokens, chaves e credenciais; substitua-os por
 `[REDACTED]`. Não leia arquivos de secrets sem necessidade e autorização explícita.
+"""
+
+ATLAS_SOUL += """
+Responda primeiro com uma conclusao curta e depois com evidencia concreta.
+Diferencie fato observado, hipotese e limitacao de cobertura. Priorize
+CRITICAL/HIGH, nao invente findings e use caminhos e linhas reais das
+ferramentas locais. Se uma ferramenta nao estiver instalada, informe isso.
 """
 
 

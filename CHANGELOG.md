@@ -4,6 +4,8 @@ All notable changes to ATLAS are documented in this file.
 
 ## [0.1.0] - 2026-09-12
 
+- Chat avançado agora usa `deepseek-v4-flash-free` por padrão, com migração automática do modelo inicial `nemotron-3-ultra-free`.
+
 ### Added
 
 - Changed-line snapshots for the built-in incremental scanner.

@@ -5,6 +5,8 @@ import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+DEFAULT_AGENT_MODEL = "deepseek-v4-flash-free"
+
 
 def data_dir() -> Path:
     if os.name == "nt":
@@ -32,7 +34,7 @@ class Settings:
     secret_scan_max_files: int = 4000
     secret_scan_max_bytes: int = 1_000_000
     splash_seconds: float = 0.8
-    agent_model: str = "nemotron-3-ultra-free"
+    agent_model: str = DEFAULT_AGENT_MODEL
     monitor_interval_seconds: float = 3.0
     monitor_security_interval_seconds: int = 900
     watchdog_debounce_seconds: float = 2.0
@@ -49,6 +51,8 @@ class Settings:
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
             allowed = {key: raw[key] for key in asdict(cls()) if key in raw}
+            if allowed.get("agent_model") == "nemotron-3-ultra-free":
+                allowed["agent_model"] = DEFAULT_AGENT_MODEL
             return cls(**allowed)
         except (OSError, ValueError, TypeError):
             return cls()
