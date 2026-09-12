@@ -1,0 +1,8 @@
+[
+  {"product": "python", "commands": [], "minimum": "3.10", "label": "Python anterior a 3.10"},
+  {"product": "nginx", "commands": [["nginx", "-v"]], "minimum": "1.22", "label": "Nginx anterior a 1.22"},
+  {"product": "apache", "commands": [["apache2", "-v"], ["httpd", "-v"]], "minimum": "2.4.54", "label": "Apache anterior a 2.4.54"},
+  {"product": "openssh", "commands": [["ssh", "-V"]], "minimum": "8.9", "label": "OpenSSH anterior a 8.9"},
+  {"product": "openssl", "commands": [["openssl", "version"]], "minimum": "3.0", "label": "OpenSSL anterior a 3.0; distribuicoes podem aplicar backports"},
+  {"product": "docker", "commands": [["docker", "--version"]], "minimum": "24.0", "label": "Docker anterior a 24.0"}
+]

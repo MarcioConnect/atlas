@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atlas-security-agent"
+version = "0.1.0"
+description = "ATLAS - agente defensivo de administracao e seguranca no terminal"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["security", "watchdog", "tui", "windows", "semgrep", "devsecops"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: Microsoft :: Windows :: Windows 10",
+  "Operating System :: Microsoft :: Windows :: Windows 11",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Security",
+]
+dependencies = [
+  "psutil>=7.0,<8",
+  "SQLAlchemy>=2.0,<3",
+  "textual>=7,<9",
+  "typer>=0.16,<1",
+  "watchdog>=6,<7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "build>=1.2,<2", "twine>=6,<7", "ruff>=0.12,<1", "pyinstaller>=6.15,<7", "pillow>=11,<13"]
+desktop = ["winotify>=1.1"]
+python-scanners = ["bandit>=1.9,<2", "pip-audit>=2.10,<3", "semgrep>=1.177,<2"]
+
+[project.scripts]
+atlas = "atlas.cli:app"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+atlas = ["assets/*", "rules/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+# Typer intentionally declares CLI metadata in defaults. Broad exception
+# guards keep the long-running defensive monitor alive if one collector fails.
+ignore = ["B008", "BLE001", "RUF012"]
