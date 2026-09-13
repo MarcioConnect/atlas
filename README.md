@@ -1,6 +1,6 @@
 # ATLAS v0.1
 
-## Melhorias locais (ainda nao publicadas)
+## Novidades da v0.1.2
 
 - Validacao de sintaxe Python, JSON e TOML, sem executar o codigo analisado.
 - Ruff opcional para diagnosticos Python: instale com `python -m pip install ruff`.
@@ -17,8 +17,8 @@ atlas watch "C:\Meu Projeto"
 ```
 
 O Watch nao detecta todos os erros possiveis. As ferramentas opcionais ampliam
-a cobertura; resultados continuam exigindo revisao humana. O executavel de uma
-release anterior nao inclui automaticamente estas alteracoes.
+a cobertura; resultados continuam exigindo revisao humana. Use o executavel da
+v0.1.2 para ter estas alteracoes.
 
 ATLAS is a defensive Security Watchdog for Windows that runs entirely in the
 terminal. It watches a source tree, scans changed code with local tools, and
@@ -34,7 +34,7 @@ watch mode does not call an LLM and does not consume AI tokens.
 
 Quer apenas usar? Baixe o executável pronto na página da release:
 
-**[Baixar ATLAS-Security-Agent.exe — v0.1.1](https://github.com/MarcioConnect/atlas/releases/download/v0.1.1/ATLAS-Security-Agent.exe)**
+**[Baixar ATLAS-Security-Agent.exe — v0.1.2](https://github.com/MarcioConnect/atlas/releases/download/v0.1.2/ATLAS-Security-Agent.exe)**
 
 Depois, no PowerShell:
 
