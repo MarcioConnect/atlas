@@ -4,6 +4,8 @@ All notable changes to ATLAS are documented in this file.
 
 ## [0.1.2] - 2026-09-13
 
+- Add repository hygiene checks for sensitive files and personal absolute paths.
+- Replace credential-shaped test fixtures with explicit test-only values.
 - Parse Python, JSON and TOML without executing project code.
 - Add optional isolated Ruff diagnostics for changed Python files.
 - Prune ignored directories before traversal and avoid full discovery on incremental scans.
