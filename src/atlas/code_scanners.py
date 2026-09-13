@@ -318,8 +318,18 @@ class LocalCodeScanners:
             return
         result.coverage["Bandit"] = {str(path).casefold() for path in python_files}
         for item in payload.get("results", []):
+            rule_id = item.get("test_id", "unknown")
+            filename = Path(item.get("filename", "unknown"))
+            # Bandit's B101 (assert) is a test-code idiom, not an application
+            # vulnerability. B404 only reports importing subprocess and has
+            # no actionable evidence by itself. Suppress these noisy rules so
+            # the Watchdog focuses on exploitable behavior.
+            if rule_id == "B404":
+                continue
+            if rule_id == "B101" and any(part.casefold() in {"test", "tests"} for part in filename.parts):
+                continue
             result.findings.append(NormalizedFinding(
-                item.get("issue_severity", "MEDIUM"), "Bandit", item.get("test_id", "unknown"),
+                item.get("issue_severity", "MEDIUM"), "Bandit", rule_id,
                 item.get("filename", "unknown"), item.get("line_number"), item.get("issue_text", "Bandit finding"),
                 "Matched code omitted to protect sensitive data.", "Review Bandit's rule guidance and use a safer API or validated input.",
             ))

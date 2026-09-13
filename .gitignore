@@ -3,6 +3,7 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .pytest-local/
+.ci-temp/
 .pytest_tmp_*/
 .test-*/
 .coverage
