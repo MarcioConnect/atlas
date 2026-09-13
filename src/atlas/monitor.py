@@ -214,8 +214,9 @@ class MonitorService:
         command = ["powershell", "-NoProfile", "-NonInteractive", "-Command",
                    "Get-NetFirewallProfile | Select-Object Name,Enabled | ConvertTo-Json -Compress"]
         try:
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
             result = subprocess.run(command, capture_output=True, text=True, timeout=8,
-                                    encoding="utf-8", errors="replace", check=False)
+                                    encoding="utf-8", errors="replace", check=False, creationflags=flags)
             payload = json.loads(result.stdout or "[]")
             if isinstance(payload, dict):
                 payload = [payload]
@@ -336,7 +337,8 @@ def start_background(roots: list[Path]) -> int:
         if getattr(sys, "frozen", False):
             child_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
         if os.name == "nt":
-            flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW
+            # CREATE_NO_WINDOW alone prevents console flashes on Windows.
+            flags = subprocess.CREATE_NO_WINDOW
         process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                    close_fds=True, creationflags=flags, env=child_env)
         STATE_PATH.write_text(json.dumps(_state_payload(process.pid, roots, "starting")), encoding="utf-8")

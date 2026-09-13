@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -138,9 +139,10 @@ def discover_files(project: Path) -> list[Path]:
 
 def _run(command: list[str], cwd: Path, timeout: int = 120) -> subprocess.CompletedProcess[str]:
     try:
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
         return subprocess.run(
             command, cwd=cwd, text=True, capture_output=True, check=False,
-            timeout=timeout, shell=False, encoding="utf-8", errors="replace",
+            timeout=timeout, shell=False, encoding="utf-8", errors="replace", creationflags=flags,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return subprocess.CompletedProcess(command, 1, "", type(exc).__name__)
