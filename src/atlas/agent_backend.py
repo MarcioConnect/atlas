@@ -218,7 +218,9 @@ def launch_agent(directory: Path | None = None, model: str | None = None, contin
     source_mode = hermes_python.exists() and hermes_cli.exists()
     command = [str(hermes_python), str(hermes_cli)] if source_mode else [executable]
     if source_mode:
-        command += ["--provider", "opencode-free", "--model", _normalize_model(model)]
+        # Be explicit so the source launcher stays in the current terminal
+        # instead of falling back to its desktop/console bootstrap path.
+        command += ["--tui", "--in", str(target), "--provider", "opencode-free", "--model", _normalize_model(model)]
     else:
         command += ["--profile", PROFILE_NAME, "--provider", "opencode-free",
                     "--model", _normalize_model(model), "--tui", "--in", str(target)]
