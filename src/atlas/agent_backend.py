@@ -140,12 +140,14 @@ def profile_dir() -> Path:
 
 
 def _run_setup(executable: str, arguments: list[str]) -> None:
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
     result = subprocess.run(
         [executable, "--profile", PROFILE_NAME, *arguments],
         text=True,
         capture_output=True,
         check=False,
         shell=False,
+        creationflags=flags,
     )
     if result.returncode:
         detail = (result.stderr or result.stdout).strip()
@@ -155,10 +157,11 @@ def _run_setup(executable: str, arguments: list[str]) -> None:
 def ensure_agent_profile(executable: str) -> Path:
     target = profile_dir()
     if not (target / "config.yaml").exists():
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
         result = subprocess.run(
             [executable, "profile", "create", PROFILE_NAME, "--no-alias", "--no-skills",
              "--description", "ATLAS: engenharia, administracao e seguranca defensiva."],
-            text=True, capture_output=True, check=False, shell=False,
+            text=True, capture_output=True, check=False, shell=False, creationflags=flags,
         )
         if result.returncode:
             detail = (result.stderr or result.stdout).strip()
