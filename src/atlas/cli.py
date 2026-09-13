@@ -238,8 +238,9 @@ def monitor(
     action = action.lower().strip()
     if action == "status":
         state = read_state()
-        status = "ATIVO" if is_running() else "PARADO"
-        console.print(f"[bold cyan]ATLAS Monitor[/] · {status} · pid={state.get('pid') or '--'}")
+        running = is_running()
+        status = "ATIVO" if running else "PARADO"
+        console.print(f"[bold cyan]ATLAS Monitor[/] · {status} · pid={state.get('pid') if running else '--'}")
         console.print("Caminhos: " + (", ".join(state.get("roots") or []) or "nenhum"))
         return
     if action == "events":

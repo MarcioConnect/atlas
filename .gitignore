@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .pytest-local/
 .ci-temp/
+.ci-security.json
 .pytest_tmp_*/
 .test-*/
 .coverage
