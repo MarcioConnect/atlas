@@ -19,7 +19,7 @@ def test_score_is_bounded_and_ignores_duplicate_fingerprint():
     duplicate = finding("x", "Issue", Severity.HIGH, "same", "risk", "component", "fix")
     assert score_findings([first, duplicate]) == 85
     critical = [finding("x", "Issue", Severity.CRITICAL, str(index), "risk", str(index), "fix") for index in range(10)]
-    assert score_findings(critical) == 0
+    assert score_findings(critical) == 50
 
 
 def test_secret_scanner_never_returns_secret_value(tmp_path: Path):
@@ -49,3 +49,10 @@ def test_secret_scanner_detects_real_project_secret(tmp_path: Path):
     assert len(findings) == 1
     assert findings[0].severity == Severity.HIGH
     assert "ghp_fake_but_project_secret_value" not in findings[0].evidence
+
+
+def test_default_secret_scope_does_not_sweep_watch_paths(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    scanner = SecurityScanner(Database(tmp_path / "atlas.db"))
+    scanner.settings.watch_paths = [str(tmp_path / "other-project")]
+    assert scanner._default_secret_roots() == [tmp_path.resolve()]

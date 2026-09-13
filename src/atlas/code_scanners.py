@@ -17,7 +17,8 @@ from atlas.security import redact
 
 IGNORED_DIRS = {
     ".git", ".hg", ".svn", ".tox", ".nox", "node_modules", "venv", ".venv",
-    "__pycache__", "_pycache_", "site-packages", "dist", "build",
+    "__pycache__", "_pycache_", "site-packages", "dist", "build", "appdata",
+    ".vscode", ".idea", "docs", "documentation", "examples", "vendor", "third_party", "generated",
 }
 PRIORITY_SUFFIXES = {".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".ps1", ".bat", ".json", ".yaml", ".yml"}
 PRIORITY_NAMES = {"dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"}

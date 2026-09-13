@@ -1,11 +1,17 @@
 from pathlib import Path
 
-from atlas.code_scanners import LocalCodeScanners, NormalizedFinding, is_priority_file
+from atlas.code_scanners import LocalCodeScanners, NormalizedFinding, is_ignored, is_priority_file
 from atlas.config import Settings
 
 
 def test_html_is_priority_file(tmp_path: Path):
     assert is_priority_file(tmp_path / "index.html")
+
+
+def test_third_party_and_documentation_are_ignored(tmp_path: Path):
+    assert is_ignored(tmp_path / "node_modules" / "pkg.py", tmp_path)
+    assert is_ignored(tmp_path / "docs" / "example.py", tmp_path)
+    assert is_ignored(tmp_path / "vendor" / "lib.py", tmp_path)
 
 
 def test_fingerprint_is_stable_and_evidence_is_redacted(tmp_path: Path):

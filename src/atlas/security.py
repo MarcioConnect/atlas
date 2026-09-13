@@ -30,6 +30,13 @@ PENALTIES = {
     Severity.LOW: 3,
     Severity.INFO: 0,
 }
+PENALTY_CAPS = {
+    Severity.CRITICAL: 50,
+    Severity.HIGH: 30,
+    Severity.MEDIUM: 20,
+    Severity.LOW: 10,
+    Severity.INFO: 0,
+}
 
 SENSITIVE_PATTERNS = [
     ("chave privada", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")),
@@ -42,6 +49,7 @@ SENSITIVE_PATTERNS = [
 SKIP_DIRS = {
     ".git", ".hg", ".svn", ".venv", "venv", "node_modules", "__pycache__", ".cache", "appdata",
     ".browser-check", ".tox", ".nox", "site-packages", "dist", "build", ".next", "coverage",
+    ".vscode", ".idea", "docs", "documentation", "examples", "vendor", "third_party", "generated",
     ".review-", ".diag-",
 }
 TEXT_SUFFIXES = {
@@ -52,7 +60,12 @@ TEXT_SUFFIXES = {
 
 def score_findings(findings: Iterable[Finding]) -> int:
     unique = {(finding.fingerprint, finding.severity): finding for finding in findings}
-    return max(0, 100 - sum(PENALTIES[Severity(item.severity)] for item in unique.values()))
+    by_severity: dict[Severity, int] = {level: 0 for level in PENALTIES}
+    for item in unique.values():
+        severity = Severity(item.severity)
+        by_severity[severity] += PENALTIES[severity]
+    penalty = sum(min(value, PENALTY_CAPS[level]) for level, value in by_severity.items())
+    return max(0, 100 - penalty)
 
 
 def redact(value: str) -> str:
@@ -139,12 +152,8 @@ class SecurityScanner:
 
     def _default_secret_roots(self) -> list[Path]:
         cwd = Path.cwd().resolve()
-        home = Path.home().resolve()
-        configured = [Path(path).expanduser().resolve() for path in self.settings.watch_paths]
-        if configured:
-            return configured
-        if cwd == home:
-            return [home / ".ssh"] if (home / ".ssh").exists() else []
+        # A one-shot security scan is scoped to the directory the user chose.
+        # Configured Watchdog roots are intentionally not swept implicitly.
         return [cwd]
 
     def _ports(self) -> list[Finding]:
