@@ -30,3 +30,22 @@ def test_secret_scanner_never_returns_secret_value(tmp_path: Path):
     assert findings
     assert all(credential_value not in item.evidence for item in findings)
     assert all("valor omitido" in item.evidence for item in findings)
+
+
+def test_secret_scanner_ignores_review_artifacts(tmp_path: Path):
+    """Temporary review/test worktrees must not lower the host score."""
+    artifact = tmp_path / ".review-open-errors"
+    artifact.mkdir()
+    (artifact / ".env").write_text("API_TOKEN=ghp_fake_review_artifact_value", encoding="utf-8")
+    scanner = SecurityScanner(Database(tmp_path / "atlas.db"))
+    assert scanner._secrets([tmp_path]) == []
+
+
+def test_secret_scanner_detects_real_project_secret(tmp_path: Path):
+    config = tmp_path / "config.py"
+    config.write_text("API_KEY = 'ghp_fake_but_project_secret_value'\n", encoding="utf-8")
+    scanner = SecurityScanner(Database(tmp_path / "atlas.db"))
+    findings = scanner._secrets([tmp_path])
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.HIGH
+    assert "ghp_fake_but_project_secret_value" not in findings[0].evidence
