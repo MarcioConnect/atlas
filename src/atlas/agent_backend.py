@@ -210,7 +210,8 @@ def launch_agent(directory: Path | None = None, model: str | None = None, contin
         raise RuntimeError(f"Diretório inválido: {target}")
 
     # O observador é independente da conversa e continua ativo após a TUI fechar.
-    ensure_monitoring(target)
+    # O chat e o Watchdog são processos independentes. O Agent não inicia um
+    # worker residente a cada abertura; use ``atlas monitor start`` à parte.
 
     # Prefer the local Hermes Python checkout so ATLAS-specific banner control
     # is honored. Keep the packaged executable as a fallback for installations
