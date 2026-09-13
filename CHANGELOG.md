@@ -6,6 +6,7 @@ All notable changes to ATLAS are documented in this file.
 
 - Add repository hygiene checks for sensitive files and personal absolute paths.
 - Replace credential-shaped test fixtures with explicit test-only values.
+- Add a reproducible GitHub Actions workflow for Windows release executables.
 - Parse Python, JSON and TOML without executing project code.
 - Add optional isolated Ruff diagnostics for changed Python files.
 - Prune ignored directories before traversal and avoid full discovery on incremental scans.
