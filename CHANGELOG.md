@@ -2,6 +2,14 @@
 
 All notable changes to ATLAS are documented in this file.
 
+## [0.1.1] - 2026-09-12
+
+- Corrigido o Agent avançado para não iniciar o Watchdog automaticamente.
+- Subprocessos de configuração agora são ocultos no Windows.
+- Inicialização automática do Watchdog não usa launcher intermediário.
+- TUI multi-projeto não redesenha sem mudanças, evitando flicker.
+- Proteção contra monitores duplicados.
+
 ## [0.1.0] - 2026-09-12
 
 - Chat avançado agora usa `deepseek-v4-flash-free` por padrão, com migração automática do modelo inicial `nemotron-3-ultra-free`.

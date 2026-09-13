@@ -14,7 +14,7 @@ watch mode does not call an LLM and does not consume AI tokens.
 
 Quer apenas usar? Baixe o executável pronto na página da release:
 
-**[Baixar ATLAS-Security-Agent.exe — v0.1.0](https://github.com/MarcioConnect/atlas/releases/download/v0.1.0/ATLAS-Security-Agent.exe)**
+**[Baixar ATLAS-Security-Agent.exe — v0.1.1](https://github.com/MarcioConnect/atlas/releases/download/v0.1.1/ATLAS-Security-Agent.exe)**
 
 Depois, no PowerShell:
 
