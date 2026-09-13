@@ -42,6 +42,7 @@ SENSITIVE_PATTERNS = [
 SKIP_DIRS = {
     ".git", ".hg", ".svn", ".venv", "venv", "node_modules", "__pycache__", ".cache", "appdata",
     ".browser-check", ".tox", ".nox", "site-packages", "dist", "build", ".next", "coverage",
+    ".review-", ".diag-",
 }
 TEXT_SUFFIXES = {
     ".txt", ".conf", ".cfg", ".ini", ".env", ".json", ".yaml", ".yml", ".toml", ".xml",
@@ -299,7 +300,7 @@ class SecurityScanner:
                     relative_parts = resolved.relative_to(root_resolved).parts
                     ignored = any(
                         part.casefold() in SKIP_DIRS
-                        or part.casefold().startswith((".pytest", ".test-", ".build-", ".publish-test-"))
+                        or part.casefold().startswith((".pytest", ".test-", ".build-", ".publish-test-", ".review-", ".diag-"))
                         for part in relative_parts
                     )
                     if not path.is_file() or ignored:
