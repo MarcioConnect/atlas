@@ -382,12 +382,23 @@ class DashboardScreen(Screen):
         scan = scan or self.database.latest_scan()
         if not scan:
             return [Static("Nenhuma analise registrada. Pressione [b]S[/b] para escanear a maquina.", classes="panel")]
+        counts = {level: sum(item.severity == level for item in scan.findings)
+                  for level in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")}
+        score_class = "score-good" if scan.score >= 80 else "score-warn" if scan.score >= 50 else "score-bad"
+        cards = Horizontal(
+            Static(f"[b]SECURITY SCORE[/b]\n[{score_class}]{scan.score}/100[/]", classes="panel score-card"),
+            Static(f"[b]CRITICAL[/b]\n[bold white on red]{counts['CRITICAL']}[/]", classes="panel metric"),
+            Static(f"[b]HIGH[/b]\n[bold #ff5f5f]{counts['HIGH']}[/]", classes="panel metric"),
+            Static(f"[b]MEDIUM[/b]\n[bold #f5c451]{counts['MEDIUM']}[/]", classes="panel metric"),
+            Static(f"[b]LOW / INFO[/b]\n{counts['LOW']} / {counts['INFO']}", classes="panel metric"),
+            classes="cards security-cards",
+        )
         table = DataTable(zebra_stripes=True, classes="panel")
-        table.add_columns("Severidade", "Finding", "Componente", "Evidencia", "Risco", "Recomendacao")
+        table.add_columns("Severidade", "Finding", "Componente", "Evidencia", "Recomendacao")
         ordered = sorted(scan.findings, key=lambda item: ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"].index(item.severity))
         for item in ordered:
-            table.add_row(f"[{SEVERITY_COLORS[item.severity]}]{item.severity}[/]", item.title, item.component, item.evidence, item.risk, item.recommendation)
-        return [Static(f"Security Score: [b]{scan.score}/100[/b] · {len(scan.findings)} findings · S para analisar novamente", classes="panel"), table]
+            table.add_row(f"[{SEVERITY_COLORS[item.severity]}]{item.severity}[/]", item.title, item.component, item.evidence, item.recommendation)
+        return [cards, Static(f"[b]SECURITY AUDIT[/b]  {len(scan.findings)} findings  ·  Pressione [b]S[/b] para analisar novamente", classes="panel"), table]
 
     def _render_changes(self):
         table = DataTable(zebra_stripes=True, classes="panel")
