@@ -225,18 +225,18 @@ class WatchScreen(Screen):
 class WatchdogApp(App):
     TITLE = "ATLAS · SECURITY WATCHDOG"
     CSS = """
-    Screen { background: #070b10; color: #d7e3ec; }
+    Screen { background: #000000; color: #e8e8e8; }
     #watch-layout { height: 1fr; }
-    #watch-sidebar { width: 25; background: #0b1118; border-right: solid #20303d; }
-    #watch-brand { height: 5; padding: 1 2; color: #6bdcff; text-style: bold; }
+    #watch-sidebar { width: 25; background: #000000; border-right: solid #7a7a7a; }
+    #watch-brand { height: 5; padding: 1 2; color: #f0f0f0; text-style: bold; }
     #watch-menu { height: 1fr; background: transparent; border: none; }
     ListItem { padding: 0 2; height: 3; }
-    ListItem.--highlight { background: #132631; color: #9eeaff; border-left: thick #6bdcff; }
-    #local-mode { height: 3; content-align: center middle; color: #70d6a3; text-style: bold; }
+    ListItem.--highlight { background: #f0f0f0; color: #080808; border-left: thick #ffffff; }
+    #local-mode { height: 3; content-align: center middle; color: #d0d0d0; text-style: bold; }
     #watch-content { padding: 1 2; }
-    .watch-title { height: 3; color: #6bdcff; text-style: bold; }
-    .watch-section { height: 2; color: #9eeaff; }
-    .watch-panel { background: #0d141c; border: solid #20303d; padding: 1 2; margin-bottom: 1; }
+    .watch-title { height: 3; color: #f0f0f0; text-style: bold; }
+    .watch-section { height: 2; color: #d8d8d8; }
+    .watch-panel { background: #080808; border: solid #7a7a7a; padding: 1 2; margin-bottom: 1; }
     DataTable { min-height: 8; }
     """
 
