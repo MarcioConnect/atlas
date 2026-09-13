@@ -36,6 +36,7 @@ class WatchScreen(Screen):
         self.database = database or Database()
         self.current_view = "Overview"
         self.visible_findings: list[CodeFinding] = []
+        self._last_render_key: tuple | None = None
         self.watchdog = CodeWatchdog(self.project, self.database, on_update=self._watchdog_update)
 
     def compose(self) -> ComposeResult:
@@ -71,7 +72,17 @@ class WatchScreen(Screen):
 
     def _tick(self) -> None:
         if self.current_view in {"Overview", "Watchdog", "Scan"}:
-            self.call_after_refresh(self.show_view)
+            key = self._state_key()
+            if key != self._last_render_key:
+                self.call_after_refresh(self.show_view)
+
+    def _state_key(self) -> tuple:
+        state = self.watchdog.state
+        return (
+            self.current_view, state.status, state.files_analyzed, state.changes,
+            state.last_scan_at, tuple(item.id for item in state.new),
+            tuple(item.id for item in state.resolved), tuple(item.name for item in state.availability),
+        )
 
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
         self.current_view = MENU[event.list_view.index or 0]
@@ -112,6 +123,7 @@ class WatchScreen(Screen):
         ))
 
     async def show_view(self) -> None:
+        self._last_render_key = self._state_key()
         body = self.query_one("#watch-content", VerticalScroll)
         await body.remove_children()
         await body.mount(Static(self.current_view.upper(), classes="watch-title"))
@@ -250,6 +262,7 @@ class MultiWatchScreen(Screen):
         super().__init__()
         self.database = database or Database()
         self.manager = MultiProjectWatchdog(projects, self.database)
+        self._last_render_key: tuple | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -276,14 +289,20 @@ class MultiWatchScreen(Screen):
         self.run_worker(self.manager.scan_now, thread=True, exclusive=True)
 
     async def refresh_view(self) -> None:
+        rows = [(project, watcher.state) for project, watcher in self.manager.watchdogs.items()]
+        key = tuple(
+            (str(project), state.status, state.files_analyzed, state.changes, state.last_scan_at,
+             tuple(item.id for item in state.new), tuple(item.id for item in state.resolved))
+            for project, state in rows
+        )
+        if key == self._last_render_key:
+            return
+        self._last_render_key = key
         body = self.query_one("#multi-watch-content", VerticalScroll)
         await body.remove_children()
-        rows = []
         total_new = 0
-        for project, watcher in self.manager.watchdogs.items():
-            state = watcher.state
+        for _, state in rows:
             total_new += len(state.new)
-            rows.append((project, state))
         status = "⚠ FINDINGS" if total_new else "● WATCHING"
         await body.mount(Static(
             f"[b cyan]ATLAS MULTI-PROJECT WATCHDOG[/b cyan]   [b]{status}[/b]\n\n"

@@ -22,6 +22,7 @@ from atlas.system import docker_inventory, services
 
 STATE_PATH = data_dir() / "monitor.json"
 STOP_PATH = data_dir() / "monitor.stop"
+START_LOCK_PATH = data_dir() / "monitor.start.lock"
 SKIP_PARTS = {
     ".git", ".hg", ".svn", ".cache", ".pytest_cache", "__pycache__", "node_modules",
     ".venv", "venv", "AppData", "$Recycle.Bin", "System Volume Information",
@@ -309,22 +310,39 @@ def _atlas_command(*arguments: str) -> list[str]:
 def start_background(roots: list[Path]) -> int:
     if is_running():
         return int(read_state()["pid"])
-    STOP_PATH.unlink(missing_ok=True)
-    command = _atlas_command("_monitor-run")
-    for root in roots:
-        command.extend(["--watch", str(root.resolve())])
-    flags = 0
-    child_env = os.environ.copy()
-    if getattr(sys, "frozen", False):
-        # A one-file PyInstaller child needs a fresh extraction directory after
-        # the short-lived launcher exits.
-        child_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
-    if os.name == "nt":
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW
-    process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                               close_fds=True, creationflags=flags, env=child_env)
-    STATE_PATH.write_text(json.dumps(_state_payload(process.pid, roots, "starting")), encoding="utf-8")
-    return process.pid
+    # Prevent two nearly simultaneous ``atlas agent``/``monitor start`` calls
+    # from spawning duplicate resident monitors (and, on some shells, extra
+    # console windows).  The lock is deliberately tiny and recreated per
+    # launch; stale locks are safe to remove when no monitor is alive.
+    try:
+        lock_fd = os.open(START_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(lock_fd, str(os.getpid()).encode("ascii", "replace"))
+        os.close(lock_fd)
+    except FileExistsError:
+        if is_running():
+            return int(read_state()["pid"])
+        try:
+            START_LOCK_PATH.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return start_background(roots)
+    try:
+        STOP_PATH.unlink(missing_ok=True)
+        command = _atlas_command("_monitor-run")
+        for root in roots:
+            command.extend(["--watch", str(root.resolve())])
+        flags = 0
+        child_env = os.environ.copy()
+        if getattr(sys, "frozen", False):
+            child_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+        if os.name == "nt":
+            flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW
+        process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   close_fds=True, creationflags=flags, env=child_env)
+        STATE_PATH.write_text(json.dumps(_state_payload(process.pid, roots, "starting")), encoding="utf-8")
+        return process.pid
+    finally:
+        START_LOCK_PATH.unlink(missing_ok=True)
 
 
 def stop_background(timeout: float = 10.0) -> bool:
