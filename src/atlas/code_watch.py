@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -86,7 +87,11 @@ class CodeWatchdog:
 
     def _notify(self) -> None:
         if self.on_update:
-            self.on_update(self.state)
+            try:
+                self.on_update(self.state)
+            except Exception as exc:
+                # A closed UI must not stop the background watcher.
+                logging.getLogger(__name__).debug("Watch UI update failed: %s", type(exc).__name__)
 
     def start(self, initial_scan: bool = True) -> None:
         if self._observer and self._observer.is_alive():
@@ -179,12 +184,13 @@ class CodeWatchdog:
             for path in changed or []:
                 self.queue(path)
             return {"NEW": [], "EXISTING": [], "RESOLVED": []}
-        trigger = str(changed[0]) if changed else None
-        scan = self.database.begin_code_scan(str(self.project), trigger)
-        self.state.status = "SCANNING"
-        self.state.error = ""
-        self._notify()
+        scan = None
         try:
+            trigger = str(changed[0]) if changed else None
+            scan = self.database.begin_code_scan(str(self.project), trigger)
+            self.state.status = "SCANNING"
+            self.state.error = ""
+            self._notify()
             changed_lines = self._changed_line_map(changed)
             scanner = self.scanner_factory(self.project)
             try:
@@ -222,9 +228,17 @@ class CodeWatchdog:
         except Exception as exc:
             self.state.status = "ERROR"
             self.state.error = type(exc).__name__
-            self.database.finish_code_scan(
-                scan.id, files_analyzed=0, changes=self.state.changes, status="ERROR", scanners="[]"
-            )
+            if scan is not None:
+                try:
+                    self.database.finish_code_scan(
+                        scan.id, files_analyzed=0, changes=self.state.changes, status="ERROR", scanners="[]"
+                    )
+                except Exception as persistence_error:
+                    # Persistence may still be unavailable. Always release the
+                    # scan lock and keep the worker alive for the next event.
+                    logging.getLogger(__name__).debug(
+                        "Watch error persistence failed: %s", type(persistence_error).__name__
+                    )
             return {"NEW": [], "EXISTING": [], "RESOLVED": []}
         finally:
             self._scan_lock.release()

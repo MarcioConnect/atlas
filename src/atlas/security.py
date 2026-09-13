@@ -14,6 +14,7 @@ from pathlib import Path
 
 from atlas.config import Settings, data_dir
 from atlas.database import Database
+from atlas.file_scope import scoped_files
 from atlas.models import Finding, Scan, Severity
 from atlas.system import (
     common_server_configs,
@@ -152,8 +153,11 @@ class SecurityScanner:
 
     def _default_secret_roots(self) -> list[Path]:
         cwd = Path.cwd().resolve()
-        # A one-shot security scan is scoped to the directory the user chose.
-        # Configured Watchdog roots are intentionally not swept implicitly.
+        home = Path.home().resolve()
+        # Avoid implicit profile-wide scans; use --path for explicit project scope.
+        if cwd == home:
+            ssh = home / ".ssh"
+            return [ssh] if ssh.exists() else []
         return [cwd]
 
     def _ports(self) -> list[Finding]:
@@ -300,7 +304,7 @@ class SecurityScanner:
             if not root.exists():
                 continue
             root_resolved = root.resolve()
-            candidates = [root] if root.is_file() else root.rglob("*")
+            candidates = scoped_files(root, SKIP_DIRS)
             for path in candidates:
                 if visited >= self.settings.secret_scan_max_files:
                     return results

@@ -1,5 +1,25 @@
 # ATLAS v0.1
 
+## Melhorias locais (ainda nao publicadas)
+
+- Validacao de sintaxe Python, JSON e TOML, sem executar o codigo analisado.
+- Ruff opcional para diagnosticos Python: instale com `python -m pip install ruff`.
+- Diagnosticos `[BUG]` e `[LINT]` nao significam invasao ou comprometimento.
+- Exclusao antecipada de dependencias, ambientes virtuais e artefatos de testes
+  durante a descoberta de arquivos.
+- Recuperacao do Watch apos falhas temporarias do SQLite ou fechamento da TUI.
+
+Para testar esta copia local:
+
+```powershell
+python -m pip install .
+atlas watch "C:\Meu Projeto"
+```
+
+O Watch nao detecta todos os erros possiveis. As ferramentas opcionais ampliam
+a cobertura; resultados continuam exigindo revisao humana. O executavel de uma
+release anterior nao inclui automaticamente estas alteracoes.
+
 ATLAS is a defensive Security Watchdog for Windows that runs entirely in the
 terminal. It watches a source tree, scans changed code with local tools, and
 reports only findings that are new since the previous measured scan.

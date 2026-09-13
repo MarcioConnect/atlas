@@ -2,6 +2,15 @@
 
 All notable changes to ATLAS are documented in this file.
 
+## [Unreleased]
+
+- Parse Python, JSON and TOML without executing project code.
+- Add optional isolated Ruff diagnostics for changed Python files.
+- Prune ignored directories before traversal and avoid full discovery on incremental scans.
+- Prevent overlapping dashboard scans and handle background scan failures.
+- Release Watch scan locks after database startup errors and isolate UI callback failures.
+- Add regression tests for syntax lifecycle, directory scope and Watch recovery.
+
 ## [0.1.1] - 2026-09-12
 
 - Corrigido o Agent avançado para não iniciar o Watchdog automaticamente.

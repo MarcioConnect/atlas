@@ -50,7 +50,6 @@ ATLAS_PORTRAIT = """⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣤⣤⣤⣄⡀⠈
 ⠀⠀⠀⢀⣼⡟⠁⠈⢻⣧⡀⠀⢸⣿⠀⠀⠀⣿⣇⣀⣀⡀⢀⣼⠟⠁⠈⢿⣆⠀⢈⣉⣉⣉⣻⡷⠀⠀⠀⠀
 ⠀⠀⠀⠉⠉⠀⠀⠀⠀⠉⠉⠀⠈⠉⠀⠀⠀⠉⠉⠉⠉⠁⠉⠉⠀⠀⠀⠀⠉⠁⠉⠉⠉⠉⠉⠁⠀⠀⠀⠀"""
 
-# Marca compacta do ATLAS para terminais monocromáticos.
 ATLAS_AGENT_MARK = """   .-========-.
  .'   /\\  /\\   '.
 /    /  \\/  \\/    \\
@@ -277,6 +276,7 @@ class DashboardScreen(Screen):
         super().__init__()
         self.database = Database()
         self.current_view = initial_view
+        self._scan_running = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -294,6 +294,7 @@ class DashboardScreen(Screen):
         menu.focus()
         self.call_after_refresh(self.show_view, self.current_view)
         if self.database.latest_scan() is None:
+            self._scan_running = True
             self.run_worker(self._initial_scan, thread=True, exclusive=True)
         self.set_interval(2.0, self._live_refresh)
 
@@ -302,8 +303,7 @@ class DashboardScreen(Screen):
             self.call_after_refresh(self.show_view, self.current_view)
 
     def _initial_scan(self) -> None:
-        SecurityScanner(self.database).scan()
-        self.app.call_from_thread(self._refresh_after_initial_scan)
+        self._scan_in_background()
 
     def _refresh_after_initial_scan(self) -> None:
         if self.current_view == "Overview":
@@ -317,14 +317,23 @@ class DashboardScreen(Screen):
         await self.show_view(self.current_view)
 
     async def action_scan(self) -> None:
+        if self._scan_running:
+            self.notify("Uma análise já está em andamento.")
+            return
+        self._scan_running = True
         body = self.query_one("#content", VerticalScroll)
         await body.remove_children()
         await body.mount(Static("Executando analise defensiva...", classes="panel"))
         self.run_worker(self._scan_in_background, thread=True, exclusive=True)
 
     def _scan_in_background(self) -> None:
-        scan = SecurityScanner(self.database).scan()
-        self.app.call_from_thread(self.call_after_refresh, self.show_view, "Security", scan)
+        try:
+            SecurityScanner(self.database).scan()
+        except Exception as exc:
+            self.app.call_from_thread(self.notify, f"Análise interrompida: {type(exc).__name__}. Pressione S para tentar novamente.", severity="error")
+        finally:
+            self._scan_running = False
+            self.app.call_from_thread(self.call_after_refresh, self.show_view, self.current_view)
 
     async def show_view(self, name: str, scan=None) -> None:
         body = self.query_one("#content", VerticalScroll)
@@ -384,7 +393,7 @@ class DashboardScreen(Screen):
             return [Static("Nenhuma analise registrada. Pressione [b]S[/b] para escanear a maquina.", classes="panel")]
         counts = {level: sum(item.severity == level for item in scan.findings)
                   for level in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")}
-        score_class = "score-good" if scan.score >= 80 else "score-warn" if scan.score >= 50 else "score-bad"
+        score_class = "bold green" if scan.score >= 80 else "bold yellow" if scan.score >= 50 else "bold red"
         cards = Horizontal(
             Static(f"[b]SECURITY SCORE[/b]\n[{score_class}]{scan.score}/100[/]", classes="panel score-card"),
             Static(f"[b]CRITICAL[/b]\n[bold white on red]{counts['CRITICAL']}[/]", classes="panel metric"),
@@ -452,7 +461,7 @@ class DashboardScreen(Screen):
 class AtlasApp(App):
     TITLE = "ATLAS"
     CSS = """
-    Screen { background: #000000; color: #e8e8e8; }
+    Screen { background: #000000; color: #f0f0f0; }
     #home-frame { height: 100%; border: solid #686868; padding: 1; }
     #home-grid { height: 1fr; }
     #identity-pane { width: 42%; padding: 0 2; }
@@ -472,15 +481,15 @@ class AtlasApp(App):
     #chat-input { height: 3; border: solid #7a7a7a; margin-top: 1; background: #000000; }
     #home-help { height: 3; border: solid #686868; padding: 0 1; content-align: left middle; color: #c8c8c8; }
     #layout { height: 1fr; }
-    #sidebar { width: 24; background: #0b1118; border-right: solid #20303d; }
-    #brand { height: 5; padding: 1 2; color: #6bdcff; text-style: bold; content-align: left middle; }
+    #sidebar { width: 24; background: #000000; border-right: solid #7a7a7a; }
+    #brand { height: 5; padding: 1 2; color: #ffffff; text-style: bold; content-align: left middle; }
     #menu { height: 1fr; background: transparent; border: none; }
     ListItem { padding: 0 2; height: 3; }
-    ListItem.--highlight { background: #132631; color: #9eeaff; border-left: thick #6bdcff; }
-    #readonly { height: 3; content-align: center middle; color: #70d6a3; text-style: bold; }
+    ListItem.--highlight { background: #f0f0f0; color: #080808; border-left: thick #ffffff; }
+    #readonly { height: 3; content-align: center middle; color: #d0d0d0; text-style: bold; }
     #content { padding: 1 2; }
-    .view-title { height: 3; color: #6bdcff; text-style: bold; }
-    .panel { background: #0d141c; border: solid #20303d; padding: 1 2; margin-bottom: 1; }
+    .view-title { height: 3; color: #ffffff; text-style: bold; }
+    .panel { background: #080808; border: solid #7a7a7a; padding: 1 2; margin-bottom: 1; }
     .cards { height: 10; }
     .cards .panel { margin-right: 1; }
     .metric-wide { width: 2fr; }

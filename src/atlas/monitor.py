@@ -311,10 +311,7 @@ def _atlas_command(*arguments: str) -> list[str]:
 def start_background(roots: list[Path]) -> int:
     if is_running():
         return int(read_state()["pid"])
-    # Prevent two nearly simultaneous ``atlas agent``/``monitor start`` calls
-    # from spawning duplicate resident monitors (and, on some shells, extra
-    # console windows).  The lock is deliberately tiny and recreated per
-    # launch; stale locks are safe to remove when no monitor is alive.
+    # Serialize launches to prevent duplicate resident monitors.
     try:
         lock_fd = os.open(START_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         os.write(lock_fd, str(os.getpid()).encode("ascii", "replace"))
@@ -366,9 +363,7 @@ def install_startup(roots: list[Path]) -> tuple[bool, str]:
     else:
         pythonw = Path(sys.executable).with_name("pythonw.exe")
         executable = pythonw if pythonw.exists() else Path(sys.executable)
-        # Start the resident worker directly. Calling ``monitor start`` here
-        # creates an extra launcher process on login and can cause duplicate
-        # consoles when startup is retried by Windows.
+        # Start the worker directly to avoid extra launcher processes at login.
         task_command = f'"{executable}" -m atlas _monitor-run {arguments}'
     result = subprocess.run(["schtasks", "/Create", "/SC", "ONLOGON", "/TN", "ATLAS-Monitor",
                              "/TR", task_command, "/F"], text=True, capture_output=True, check=False)

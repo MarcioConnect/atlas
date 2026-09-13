@@ -7,11 +7,13 @@ import os
 import re
 import shutil
 import subprocess
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from atlas.config import Settings
+from atlas.file_scope import ignored_name, scoped_files
 from atlas.models import Severity
 from atlas.security import redact
 
@@ -20,9 +22,10 @@ IGNORED_DIRS = {
     "__pycache__", "_pycache_", "site-packages", "dist", "build", "appdata",
     ".vscode", ".idea", "docs", "documentation", "examples", "vendor", "third_party", "generated",
 }
-PRIORITY_SUFFIXES = {".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".ps1", ".bat", ".json", ".yaml", ".yml"}
+PRIORITY_SUFFIXES = {".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".ps1", ".bat", ".json", ".yaml", ".yml", ".toml"}
 PRIORITY_NAMES = {"dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"}
 INSTALL_HINTS = {
+    "Ruff": "python -m pip install ruff",
     "Semgrep": "python -m pip install semgrep",
     "Bandit": "python -m pip install bandit",
     "pip-audit": "python -m pip install pip-audit",
@@ -113,8 +116,7 @@ def is_ignored(path: Path, project: Path) -> bool:
     except (OSError, ValueError):
         return True
     return any(
-        part.casefold() in IGNORED_DIRS
-        or part.casefold().startswith((".pytest", ".test-", ".build-", ".publish-test-", ".review-"))
+        ignored_name(part, IGNORED_DIRS)
         for part in parts
     )
 
@@ -126,7 +128,7 @@ def is_priority_file(path: Path) -> bool:
 def discover_files(project: Path) -> list[Path]:
     found: list[Path] = []
     try:
-        candidates = project.rglob("*")
+        candidates = scoped_files(project, IGNORED_DIRS)
         for path in candidates:
             try:
                 if path.is_file() and is_priority_file(path) and not is_ignored(path, project):
@@ -163,9 +165,8 @@ class LocalCodeScanners:
         self.project = project.expanduser().resolve()
 
     def scan(self, changed: list[Path] | None = None, changed_lines: dict[str, set[int]] | None = None) -> CodeScanResult:
-        all_files = discover_files(self.project)
         if changed is None:
-            targets = all_files
+            targets = discover_files(self.project)
         else:
             targets = []
             for item in changed:
@@ -174,6 +175,8 @@ class LocalCodeScanners:
                     targets.append(path)
         result = CodeScanResult(files_analyzed=len(targets))
         self._native(targets, result, changed_lines=changed_lines)
+        self._syntax(targets, result)
+        self._ruff(targets, result)
         self._semgrep(targets, result)
         self._bandit(targets, result)
         self._pip_audit(changed, result)
@@ -193,6 +196,58 @@ class LocalCodeScanners:
             unique[item.fingerprint] = item
         result.findings = list(unique.values())
         return result
+
+    def _syntax(self, targets: list[Path], result: CodeScanResult) -> None:
+        """Parse whole changed files without importing or executing user code."""
+        scanner = "ATLAS Syntax"
+        self._availability(result, scanner, True)
+        coverage: set[str] = set()
+        for path in targets:
+            if path.suffix.lower() not in {".py", ".json", ".toml"}:
+                continue
+            try:
+                content = path.read_text(encoding="utf-8-sig")
+            except (OSError, UnicodeError):
+                continue
+            coverage.add(str(path.resolve()).casefold())
+            try:
+                if path.suffix.lower() == ".py":
+                    ast.parse(content, filename=str(path))
+                elif path.suffix.lower() == ".json":
+                    json.loads(content)
+                else:
+                    tomllib.loads(content)
+            except (SyntaxError, json.JSONDecodeError, tomllib.TOMLDecodeError) as exc:
+                result.findings.append(NormalizedFinding(
+                    "MEDIUM", scanner, "syntax-" + path.suffix[1:].lower(), str(path),
+                    getattr(exc, "lineno", None), "[BUG] Invalid syntax: " + path.suffix[1:].upper(),
+                    "Parser rejected this file; source and values omitted.",
+                    "Correct the syntax at the reported location; this is a code/configuration error, not evidence of intrusion.",
+                ))
+        result.coverage[scanner] = coverage
+
+    def _ruff(self, targets: list[Path], result: CodeScanResult) -> None:
+        executable = shutil.which("ruff")
+        self._availability(result, "Ruff", bool(executable))
+        python_files = [path for path in targets if path.suffix.lower() == ".py"]
+        if not executable or not python_files:
+            return
+        # Isolated rules: no project plugins, execution, installation or auto-fix.
+        process = _run([executable, "check", "--isolated", "--select", "F", "--output-format", "json",
+                        *map(str, python_files)], self.project)
+        payload = _json(process.stdout)
+        if process.returncode not in {0, 1} or not isinstance(payload, list):
+            return
+        result.coverage["Ruff"] = {str(path.resolve()).casefold() for path in python_files}
+        for item in payload:
+            code = item.get("code") or "invalid-syntax"
+            result.findings.append(NormalizedFinding(
+                "MEDIUM" if code in {"F821", "F822", "F823", "invalid-syntax"} else "LOW",
+                "Ruff", code, item.get("filename", "unknown"),
+                (item.get("location") or {}).get("row"), "[LINT] Python diagnostic " + code,
+                "Diagnostic source omitted to protect sensitive values.",
+                "Review Ruff rule " + code + "; this diagnostic is not a confirmed security vulnerability.",
+            ))
 
     def _availability(self, result: CodeScanResult, name: str, available: bool, detail: str = "") -> None:
         result.availability.append(ScannerAvailability(name, available, INSTALL_HINTS.get(name, "Built into ATLAS"), redact(detail)))
@@ -321,10 +376,7 @@ class LocalCodeScanners:
         for item in payload.get("results", []):
             rule_id = item.get("test_id", "unknown")
             filename = Path(item.get("filename", "unknown"))
-            # Bandit's B101 (assert) is a test-code idiom, not an application
-            # vulnerability. B404 only reports importing subprocess and has
-            # no actionable evidence by itself. Suppress these noisy rules so
-            # the Watchdog focuses on exploitable behavior.
+            # Test assertions and subprocess imports alone are not vulnerabilities.
             if rule_id == "B404":
                 continue
             if rule_id == "B101" and any(part.casefold() in {"test", "tests"} for part in filename.parts):

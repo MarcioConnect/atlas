@@ -84,7 +84,6 @@ banner_hero: |2-
        //  \\
 '''
 
-# Override the upstream logo in the ATLAS profile with the requested symbol.
 ATLAS_SKIN += '\nbanner_logo: |2-\n              ⚕  A T L A S\n             SECURITY AGENT\n'
 
 ATLAS_SOUL = """# ATLAS
@@ -209,13 +208,9 @@ def launch_agent(directory: Path | None = None, model: str | None = None, contin
     if not target.exists() or not target.is_dir():
         raise RuntimeError(f"Diretório inválido: {target}")
 
-    # O observador é independente da conversa e continua ativo após a TUI fechar.
-    # O chat e o Watchdog são processos independentes. O Agent não inicia um
-    # worker residente a cada abertura; use ``atlas monitor start`` à parte.
+    # O Agent nao inicia o monitor; use `atlas monitor start` separadamente.
 
-    # Prefer the local Hermes Python checkout so ATLAS-specific banner control
-    # is honored. Keep the packaged executable as a fallback for installations
-    # that do not include the source checkout/virtualenv.
+    # Prefer source for ATLAS branding; fall back to the packaged executable.
     hermes_root = Path(executable).parent.parent / "hermes-agent"
     hermes_python = hermes_root / "venv" / "Scripts" / "python.exe"
     hermes_cli = hermes_root / "cli.py"
