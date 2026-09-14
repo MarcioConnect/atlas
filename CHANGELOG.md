@@ -2,6 +2,15 @@
 
 All notable changes to ATLAS are documented in this file.
 
+## [Unreleased]
+
+- Add opt-in, local-only Ollama review for new sanitized findings.
+- Add deterministic Security Guard detection for prompt injection, exfiltration,
+  obfuscation, privilege escalation, tool abuse and multi-step attack chains.
+- Add Microsoft Defender status, detection-history and no-remediation custom scans.
+- Poll new Defender detections from the resident monitor every 30 seconds.
+- Add graceful coverage reporting when Defender requires Administrator access.
+
 ## [0.1.2] - 2026-09-13
 
 - Add repository hygiene checks for sensitive files and personal absolute paths.

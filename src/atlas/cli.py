@@ -42,6 +42,36 @@ def _monitor_roots(paths: list[Path] | None) -> list[Path]:
     return roots
 
 
+@app.command()
+def malware(
+    action: str = typer.Argument("status", help="status ou scan"),
+    path: Path | None = typer.Argument(None, help="Arquivo ou diretorio para scan customizado."),
+) -> None:
+    """Consulta o Microsoft Defender ou executa scan sem remediacao automatica."""
+    from atlas.threats import defender_snapshot, scan_with_defender
+
+    action = action.casefold()
+    if action == "status":
+        snapshot = defender_snapshot()
+        if not snapshot.available:
+            console.print(f"[yellow]Microsoft Defender unavailable:[/] {snapshot.detail}")
+            raise typer.Exit(1)
+        enabled = all(snapshot.status.get(key) is not False for key in (
+            "AMServiceEnabled", "AntivirusEnabled", "AntispywareEnabled", "RealTimeProtectionEnabled",
+        ))
+        console.print("[green]Defender ACTIVE[/]" if enabled else "[red]Defender protection incomplete[/]")
+        console.print(f"Detections in Defender history: {len(snapshot.detections)}")
+        return
+    if action != "scan" or path is None:
+        raise typer.BadParameter("Use: atlas malware status ou atlas malware scan CAMINHO")
+    target = path.expanduser().resolve()
+    console.print("[cyan]Defender custom scan (read-only remediation mode)...[/]")
+    clean, detail = scan_with_defender(target)
+    console.print(detail)
+    if not clean:
+        raise typer.Exit(2)
+
+
 @app.callback()
 def main(
     ctx: typer.Context,
@@ -153,7 +183,8 @@ def report(
 @app.command()
 def watch(
     project: Path | None = typer.Argument(None, help="Diretorio do projeto; omitido observa todos os caminhos configurados."),
-    ai: bool = typer.Option(False, "--ai", help="Reserva a integracao futura com IA; nao faz chamadas na v0.1."),
+    ai: bool = typer.Option(False, "--ai", help="Revisa findings novos com Ollama local; nunca executa codigo."),
+    ai_model: str | None = typer.Option(None, "--ai-model", help="Modelo Ollama local; padrao definido nas configuracoes."),
     once: bool = typer.Option(False, "--once", help="Executa um scan local e encerra."),
     all_projects: bool = typer.Option(False, "--all", help="Observa todos os caminhos configurados."),
     silent: bool | None = typer.Option(None, "--silent/--notify", help="Desativa ou reativa notificações do Watchdog."),
@@ -182,9 +213,10 @@ def watch(
             raise typer.BadParameter(f"Diretorio inexistente: {target}")
         targets = [target]
     if ai:
-        console.print("[yellow]--ai esta reservado para uma versao futura; a v0.1 continua 100% local.[/yellow]")
+        selected_model = ai_model or Settings.load().ollama_model
+        console.print(f"[cyan]Ollama AI local ativo:[/] {selected_model}")
     if once:
-        manager = MultiProjectWatchdog(targets)
+        manager = MultiProjectWatchdog(targets, ai_enabled=ai, ai_model=ai_model)
         with console.status("[cyan]ATLAS executando scanners locais...[/cyan]"):
             manager.scan_now()
         table = Table(title=f"ATLAS WATCHDOG · {len(targets)} projeto(s)")
@@ -214,9 +246,15 @@ def watch(
     from atlas.watch_tui import run_multi_watch_tui, run_watch_tui
 
     if multi:
-        run_multi_watch_tui(targets)
+        if ai:
+            run_multi_watch_tui(targets, ai_enabled=True, ai_model=ai_model)
+        else:
+            run_multi_watch_tui(targets)
     else:
-        run_watch_tui(targets[0])
+        if ai:
+            run_watch_tui(targets[0], ai_enabled=True, ai_model=ai_model)
+        else:
+            run_watch_tui(targets[0])
 
 
 @app.command()

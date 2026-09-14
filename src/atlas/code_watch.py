@@ -68,12 +68,16 @@ class CodeWatchdog:
         debounce_seconds: float | None = None,
         on_update: Callable[[WatchState], None] | None = None,
         scanner_factory: Callable[[Path], LocalCodeScanners] = LocalCodeScanners,
+        ai_enabled: bool = False,
+        ai_model: str | None = None,
     ) -> None:
         self.project = project.expanduser().resolve()
         self.database = database or Database()
         self.debounce_seconds = debounce_seconds if debounce_seconds is not None else Settings.load().watchdog_debounce_seconds
         self.on_update = on_update
         self.scanner_factory = scanner_factory
+        self.ai_enabled = ai_enabled
+        self.ai_model = ai_model
         self.state = WatchState(project=self.project)
         self._observer: Observer | None = None
         self._worker: threading.Thread | None = None
@@ -198,6 +202,8 @@ class CodeWatchdog:
             except TypeError:
                 # Keep compatibility with custom scanner factories using the v0.1 API.
                 local_result = scanner.scan(changed)
+            if self.ai_enabled:
+                self._review_new_with_ai(local_result)
             if changed is None:
                 self._seed_snapshots()
             reconciled = self.database.reconcile_code_findings(
@@ -243,6 +249,24 @@ class CodeWatchdog:
         finally:
             self._scan_lock.release()
             self._notify()
+
+    def _review_new_with_ai(self, result: CodeScanResult) -> None:
+        from atlas.ollama_ai import OllamaReviewer
+
+        settings = Settings.load()
+        model = self.ai_model or settings.ollama_model
+        timeout = settings.ollama_timeout_seconds
+        active = {
+            item.fingerprint for item in self.database.code_findings(str(self.project))
+            if item.state != "RESOLVED"
+        }
+        candidates = [item for item in result.findings if item.fingerprint not in active]
+        reviewer = OllamaReviewer(self.project, model, timeout)
+        status = reviewer.review(candidates)
+        result.availability.append(ScannerAvailability(
+            "Ollama AI", status.available,
+            f"Install Ollama, then run: ollama pull {model}", status.detail,
+        ))
 
     def _changed_line_map(self, changed: list[Path] | None) -> dict[str, set[int]] | None:
         """Return changed line numbers using an in-memory previous snapshot.

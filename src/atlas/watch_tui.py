@@ -30,14 +30,20 @@ class WatchScreen(Screen):
         ("r", "refresh_view", "Refresh"),
     ]
 
-    def __init__(self, project: Path, database: Database | None = None) -> None:
+    def __init__(
+        self, project: Path, database: Database | None = None,
+        ai_enabled: bool = False, ai_model: str | None = None,
+    ) -> None:
         super().__init__()
         self.project = project.resolve()
         self.database = database or Database()
         self.current_view = "Overview"
         self.visible_findings: list[CodeFinding] = []
         self._last_render_key: tuple | None = None
-        self.watchdog = CodeWatchdog(self.project, self.database, on_update=self._watchdog_update)
+        self.watchdog = CodeWatchdog(
+            self.project, self.database, on_update=self._watchdog_update,
+            ai_enabled=ai_enabled, ai_model=ai_model,
+        )
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -240,17 +246,22 @@ class WatchdogApp(App):
     DataTable { min-height: 8; }
     """
 
-    def __init__(self, project: Path, database: Database | None = None) -> None:
+    def __init__(
+        self, project: Path, database: Database | None = None,
+        ai_enabled: bool = False, ai_model: str | None = None,
+    ) -> None:
         super().__init__()
         self.project = project
         self.database = database
+        self.ai_enabled = ai_enabled
+        self.ai_model = ai_model
 
     def on_mount(self) -> None:
-        self.push_screen(WatchScreen(self.project, self.database))
+        self.push_screen(WatchScreen(self.project, self.database, self.ai_enabled, self.ai_model))
 
 
-def run_watch_tui(project: Path) -> None:
-    WatchdogApp(project).run()
+def run_watch_tui(project: Path, ai_enabled: bool = False, ai_model: str | None = None) -> None:
+    WatchdogApp(project, ai_enabled=ai_enabled, ai_model=ai_model).run()
 
 
 class MultiWatchScreen(Screen):
@@ -258,10 +269,15 @@ class MultiWatchScreen(Screen):
 
     BINDINGS = [("q", "app.quit", "Quit"), ("w", "toggle_watch", "Start/Stop"), ("s", "manual_scan", "Scan"), ("r", "refresh_view", "Refresh")]
 
-    def __init__(self, projects: list[Path], database: Database | None = None) -> None:
+    def __init__(
+        self, projects: list[Path], database: Database | None = None,
+        ai_enabled: bool = False, ai_model: str | None = None,
+    ) -> None:
         super().__init__()
         self.database = database or Database()
-        self.manager = MultiProjectWatchdog(projects, self.database)
+        self.manager = MultiProjectWatchdog(
+            projects, self.database, ai_enabled=ai_enabled, ai_model=ai_model,
+        )
         self._last_render_key: tuple | None = None
 
     def compose(self) -> ComposeResult:
@@ -329,13 +345,15 @@ class MultiWatchApp(App):
     TITLE = "ATLAS · MULTI-PROJECT WATCHDOG"
     CSS = WatchdogApp.CSS
 
-    def __init__(self, projects: list[Path]) -> None:
+    def __init__(self, projects: list[Path], ai_enabled: bool = False, ai_model: str | None = None) -> None:
         super().__init__()
         self.projects = projects
+        self.ai_enabled = ai_enabled
+        self.ai_model = ai_model
 
     def on_mount(self) -> None:
-        self.push_screen(MultiWatchScreen(self.projects))
+        self.push_screen(MultiWatchScreen(self.projects, ai_enabled=self.ai_enabled, ai_model=self.ai_model))
 
 
-def run_multi_watch_tui(projects: list[Path]) -> None:
-    MultiWatchApp(projects).run()
+def run_multi_watch_tui(projects: list[Path], ai_enabled: bool = False, ai_model: str | None = None) -> None:
+    MultiWatchApp(projects, ai_enabled=ai_enabled, ai_model=ai_model).run()

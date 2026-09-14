@@ -16,6 +16,7 @@ from atlas.config import Settings
 from atlas.file_scope import ignored_name, scoped_files
 from atlas.models import Severity
 from atlas.security import redact
+from atlas.security_guard import LEVELS, assess_untrusted
 
 IGNORED_DIRS = {
     ".git", ".hg", ".svn", ".tox", ".nox", "node_modules", "venv", ".venv",
@@ -175,6 +176,7 @@ class LocalCodeScanners:
                     targets.append(path)
         result = CodeScanResult(files_analyzed=len(targets))
         self._native(targets, result, changed_lines=changed_lines)
+        self._security_guard(targets, result, changed_lines=changed_lines)
         self._syntax(targets, result)
         self._ruff(targets, result)
         self._semgrep(targets, result)
@@ -251,6 +253,42 @@ class LocalCodeScanners:
 
     def _availability(self, result: CodeScanResult, name: str, available: bool, detail: str = "") -> None:
         result.availability.append(ScannerAvailability(name, available, INSTALL_HINTS.get(name, "Built into ATLAS"), redact(detail)))
+
+    def _security_guard(
+        self, targets: list[Path], result: CodeScanResult, changed_lines: dict[str, set[int]] | None = None,
+    ) -> None:
+        scanner = "ATLAS Security Guard"
+        coverage: set[str] = set()
+        severity = {"SUSPICIOUS": "LOW", "HIGH_RISK": "HIGH", "CRITICAL": "CRITICAL"}
+        for path in targets:
+            try:
+                relative_parts = {part.casefold() for part in path.relative_to(self.project).parts}
+            except ValueError:
+                continue
+            is_test_fixture = "tests" in relative_parts or path.name.casefold().startswith(("test_", "spec."))
+            if is_test_fixture:
+                continue
+            try:
+                if path.stat().st_size > 2_000_000:
+                    continue
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            key = str(path.resolve()).casefold()
+            coverage.add(key)
+            allowed = changed_lines.get(key) if changed_lines is not None else None
+            for incident in assess_untrusted(content):
+                if allowed is not None and incident.line not in allowed and incident.line != 1:
+                    continue
+                if LEVELS[incident.level] == 0:
+                    continue
+                result.findings.append(NormalizedFinding(
+                    severity[incident.level], scanner, f"guard-{incident.category}", str(path), incident.line,
+                    f"[{incident.level}] Untrusted-content {incident.category} detected",
+                    incident.evidence, incident.recommendation,
+                ))
+        result.coverage[scanner] = coverage
+        self._availability(result, scanner, True, "local deterministic guard")
 
     def _native(self, targets: list[Path], result: CodeScanResult, changed_lines: dict[str, set[int]] | None = None) -> None:
         scanner = "ATLAS Native"

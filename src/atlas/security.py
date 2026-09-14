@@ -127,6 +127,7 @@ class SecurityScanner:
             self._docker,
             self._web_configs,
             self._software_versions,
+            self._antimalware,
         ]
         for check in checks:
             try:
@@ -150,6 +151,49 @@ class SecurityScanner:
         if persist:
             self.database.save_scan(scan)
         return scan
+
+    def _antimalware(self) -> list[Finding]:
+        from atlas.threats import defender_snapshot
+
+        snapshot = defender_snapshot()
+        if not snapshot.available:
+            return [finding(
+                "defender-coverage", "Microsoft Defender indisponivel", Severity.INFO,
+                snapshot.detail, "A cobertura de malware e spyware nao foi confirmada.",
+                "Microsoft Defender", "Verifique o Defender ou o antivirus corporativo instalado.",
+            )]
+        results: list[Finding] = []
+        required = (
+            "AMServiceEnabled", "AntivirusEnabled", "AntispywareEnabled",
+            "BehaviorMonitorEnabled", "RealTimeProtectionEnabled",
+        )
+        disabled = [name for name in required if snapshot.status.get(name) is False]
+        if disabled:
+            results.append(finding(
+                "defender-disabled", "Protecao antimalware desativada", Severity.CRITICAL,
+                "Recursos desativados: " + ", ".join(disabled),
+                "Malware e spyware podem executar sem inspecao em tempo real.",
+                "Microsoft Defender", "Reative a protecao pela interface oficial ou contate o administrador.",
+            ))
+        signature_age = snapshot.status.get("AntivirusSignatureAge")
+        if isinstance(signature_age, int) and signature_age > 3:
+            results.append(finding(
+                "defender-signatures", "Assinaturas antimalware desatualizadas", Severity.HIGH,
+                f"Idade das assinaturas: {signature_age} dias",
+                "A deteccao pode nao reconhecer ameacas recentes.", "Microsoft Defender",
+                "Atualize a inteligencia de seguranca do Microsoft Defender.",
+            ))
+        for item in snapshot.detections:
+            action_success = bool(item.get("ActionSuccess"))
+            results.append(finding(
+                "defender-detection", "Ameaca detectada pelo Microsoft Defender",
+                Severity.INFO if action_success else Severity.CRITICAL,
+                f"ThreatID={item.get('ThreatID') or 'unknown'}; action_success={action_success}; "
+                f"resources={','.join(item.get('Resources') or []) or '[REDACTED]'}",
+                "Deteccao historica tratada." if action_success else "Uma deteccao pode permanecer ativa ou sem tratamento.",
+                "Microsoft Defender", "Abra Seguranca do Windows e confirme o estado e a acao aplicada.",
+            ))
+        return results
 
     def _default_secret_roots(self) -> list[Path]:
         cwd = Path.cwd().resolve()

@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 DEFAULT_AGENT_MODEL = "deepseek-v4-flash-free"
+DEFAULT_OLLAMA_MODEL = "qwen2.5-coder:3b"
 
 
 def data_dir() -> Path:
@@ -42,6 +43,8 @@ class Settings:
     silent_mode: bool = False
     ignored_rules: list[str] = field(default_factory=list)
     risk_overrides: dict[str, str] = field(default_factory=dict)
+    ollama_model: str = DEFAULT_OLLAMA_MODEL
+    ollama_timeout_seconds: float = 45.0
 
     @classmethod
     def load(cls) -> Settings:

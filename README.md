@@ -186,8 +186,19 @@ Run one scan without opening the TUI:
 atlas watch "C:\Meu Projeto" --once
 ```
 
-`--ai` is reserved for a future provider integration. In v0.1 it makes no paid
-or remote AI call.
+Enable optional local AI review with Ollama:
+
+```powershell
+winget install Ollama.Ollama
+ollama pull qwen2.5-coder:3b
+atlas watch "C:\Meu Projeto" --ai
+```
+
+Only findings that are not already active are reviewed. ATLAS sends sanitized,
+short source excerpts exclusively to `127.0.0.1:11434`, requests structured
+JSON, exposes no tools to the model, and never executes model output. If Ollama
+or the selected model is unavailable, local scanning continues normally. Use
+`--ai-model MODEL` to select another locally installed model.
 
 Use `--silent` to keep the watcher quiet, or persist rule exclusions with
 `--ignore-rule`:
@@ -252,6 +263,9 @@ Python caches, test/build artifacts, `dist`, and `build`.
 | Scanner | Scope | Optional install |
 |---|---|---|
 | ATLAS Native | Secrets, risky APIs, exposed binds, Docker basics | Built in |
+| ATLAS Security Guard | Prompt injection, exfiltration chains, obfuscation, tool abuse | Built in |
+| Microsoft Defender | Malware/spyware state and detection history on Windows | Built into Windows |
+| Ollama AI | Context review of new, sanitized findings | `winget install Ollama.Ollama` |
 | Semgrep | Multi-language static analysis | `python -m pip install semgrep` |
 | Bandit | Python security linting | `python -m pip install bandit` |
 | pip-audit | Python dependencies | `python -m pip install pip-audit` |
@@ -270,6 +284,8 @@ atlas agent                   # conversa do agente ATLAS no terminal
 atlas agent --advanced        # exige o chat avançado do ATLAS
 atlas dashboard               # system security dashboard
 atlas security                # read-only machine scan
+atlas malware status          # Defender protection and detection status
+atlas malware scan "C:\Path" # custom Defender scan without automatic remediation
 atlas monitor start           # background events + code Watchdogs for all configured paths
 atlas monitor install         # start now and register ATLAS for Windows login
 atlas monitor status
@@ -309,6 +325,13 @@ sanitized before display or storage. Passwords, tokens, API keys, cookies,
 connection strings, private keys, `.env` values, and common credential formats
 are replaced with `[REDACTED]` or omitted entirely.
 
+The Security Guard treats source files, pages, documents, API responses and
+model output as untrusted data. Embedded instructions cannot grant themselves
+authority. The deterministic layer detects prompt injection, attempted secret
+exfiltration, hidden/encoded instructions, privilege escalation, tool abuse and
+multi-step acquisition/encoding/transmission chains. It records sanitized
+evidence and blocks those instructions from influencing the Ollama request.
+
 For ordinary file activity, ATLAS stores only sanitized metadata: timestamp,
 event type, severity, and path. It does not store file contents. Sensitive
 filenames are replaced with `[SENSITIVE_FILE]`.
@@ -326,7 +349,12 @@ filenames are replaced with `[SENSITIVE_FILE]`.
   `atlas agent --advanced` when the advanced backend is required.
 - The native scanner is intentionally conservative and is not a replacement for
   specialist scanners or a professional security review.
-- `atlas watch --ai` is a placeholder and performs no AI analysis.
+- Ollama improves context but can still make mistakes; deterministic scanners
+  remain authoritative and AI review is clearly labelled.
+- ATLAS complements Microsoft Defender. It is not an antivirus engine and cannot
+  guarantee detection of every malware, spyware, rootkit or zero-day attack.
+- Defender telemetry can require Administrator access under corporate policy;
+  ATLAS reports this limitation instead of bypassing it.
 
 ## Development
 
@@ -341,7 +369,7 @@ atlas watch . --once
 `atlas monitor start` runs in the background and starts one local code Watchdog
 per existing configured path. All non-ignored file changes are recorded as
 sanitized metadata; supported source/configuration files are debounced, scanned locally, and
-reconciled as `NEW`/`EXISTING`/`RESOLVED` without AI calls. Use
+reconciled as `NEW`/`EXISTING`/`RESOLVED`. AI remains opt-in with `atlas watch --ai`. Use
 `atlas monitor status` and `atlas monitor events` to inspect the resident
 service.
 

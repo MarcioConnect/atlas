@@ -20,6 +20,8 @@ class MultiProjectWatchdog:
         database: Database | None = None,
         on_update: Callable[[Path, WatchState], None] | None = None,
         scanner_factory=LocalCodeScanners,
+        ai_enabled: bool = False,
+        ai_model: str | None = None,
     ) -> None:
         unique: dict[str, Path] = {}
         for project in projects:
@@ -35,6 +37,8 @@ class MultiProjectWatchdog:
                 self.database,
                 on_update=lambda state, path=project: self._updated(path, state),
                 scanner_factory=scanner_factory,
+                ai_enabled=ai_enabled,
+                ai_model=ai_model,
             )
             for project in self.projects
         }

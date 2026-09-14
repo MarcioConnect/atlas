@@ -140,6 +140,7 @@ class MonitorService:
         self._services: dict[str, str] = {}
         self._containers: dict[str, str] = {}
         self._firewall: dict[str, bool] = {}
+        self._threats: set[tuple[str, str]] = set()
 
     def record(self, kind: str, severity: Severity, component: str, detail: str, risk: str = "") -> None:
         self.database.add_monitor_event(MonitorEvent(
@@ -236,6 +237,29 @@ class MonitorService:
                     )
         self._firewall = current
 
+    def _snapshot_threats(self, initial: bool = False) -> None:
+        from atlas.threats import defender_snapshot
+
+        snapshot = defender_snapshot()
+        if not snapshot.available:
+            return
+        current: set[tuple[str, str]] = set()
+        records: dict[tuple[str, str], dict] = {}
+        for item in snapshot.detections:
+            identity = (str(item.get("ThreatID") or "unknown"), str(item.get("InitialDetectionTime") or ""))
+            current.add(identity)
+            records[identity] = item
+        if not initial:
+            for identity in current - self._threats:
+                item = records[identity]
+                handled = bool(item.get("ActionSuccess"))
+                self.record(
+                    "malware", Severity.INFO if handled else Severity.CRITICAL,
+                    "Microsoft Defender", f"nova deteccao ThreatID={identity[0]}; tratada={handled}",
+                    "Deteccao antimalware registrada pelo Windows Defender.",
+                )
+        self._threats = current
+
     def run(self) -> None:
         STOP_PATH.unlink(missing_ok=True)
         handler = ChangeHandler(self.database)
@@ -254,8 +278,9 @@ class MonitorService:
         self._snapshot_services(initial=True)
         self._snapshot_docker(initial=True)
         self._snapshot_firewall(initial=True)
+        self._snapshot_threats(initial=True)
         self.record("monitor", Severity.INFO, "ATLAS", f"monitor iniciado em {len(self.roots)} caminho(s)")
-        last_services = last_docker = last_scan = time.monotonic()
+        last_services = last_docker = last_threats = last_scan = time.monotonic()
         failure = ""
         try:
             while not STOP_PATH.exists():
@@ -277,6 +302,12 @@ class MonitorService:
                     except Exception as exc:
                         self.record("monitor-error", Severity.LOW, "docker", type(exc).__name__)
                     last_docker = started
+                if started - last_threats >= 30:
+                    try:
+                        self._snapshot_threats()
+                    except Exception as exc:
+                        self.record("monitor-error", Severity.LOW, "antimalware", type(exc).__name__)
+                    last_threats = started
                 if started - last_scan >= self.settings.monitor_security_interval_seconds:
                     try:
                         SecurityScanner(self.database).scan(self.roots)
