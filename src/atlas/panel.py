@@ -151,7 +151,11 @@ class AtlasPanel(App):
 
         ensure_local_service()
         status = OllamaReviewer(self.project, self.model or Settings.load().ollama_model, timeout=3).availability()
-        self.call_from_thread(self.query_one("#ai-status", Static).update, status.detail)
+        def update_status():
+            matches = self.query("#ai-status")
+            if matches:
+                matches.first(Static).update(status.detail)
+        self.call_from_thread(update_status)
 
     def on_unmount(self):
         self.watchdog.stop()
@@ -364,7 +368,10 @@ class AtlasPanel(App):
     def _finish_answer(self, reply: AssistantReply):
         self.chat_busy = False
         self.last_context = reply.context
-        chat = self.query_one('#chat', RichLog)
+        matches = self.query('#chat')
+        if not matches:
+            return
+        chat = matches.first(RichLog)
         chat.write('ATLAS: ' + sanitize_text(reply.text))
         files = reply.context.get('files', [])
         if files:

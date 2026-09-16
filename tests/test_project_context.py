@@ -72,7 +72,8 @@ def test_chat_sends_project_source_to_local_model(tmp_path, monkeypatch):
             field.value = 'Analise app.py'
             field.focus()
             await pilot.press('enter')
-            await pilot.pause(.3)
+            # Allow the background assistant worker to start on slower Windows runners.
+            await pilot.pause(1)
             assert len(sent) == 1
             assert 'def add(a, b)' in sent[0]['prompt']
             assert '1 arquivo(s)' in str(pilot.app.query_one('#details').render())
