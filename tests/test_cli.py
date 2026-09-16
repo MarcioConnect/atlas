@@ -37,8 +37,7 @@ def test_bare_atlas_opens_native_tui_not_hermes(monkeypatch):
 
 def test_agent_opens_advanced_atlas_conversation_when_available(monkeypatch):
     opened = []
-    monkeypatch.setattr("atlas.agent_backend.find_hermes", lambda: "backend.exe")
-    monkeypatch.setattr("atlas.agent_backend.launch_agent", lambda *args: opened.append(args) or 0)
+    monkeypatch.setattr("atlas.panel.AtlasPanel.run", lambda self: opened.append(True))
 
     result = runner.invoke(app, ["agent"])
 
@@ -48,8 +47,7 @@ def test_agent_opens_advanced_atlas_conversation_when_available(monkeypatch):
 
 def test_agent_falls_back_to_portable_local_ui(monkeypatch):
     opened = []
-    monkeypatch.setattr("atlas.agent_backend.find_hermes", lambda: None)
-    monkeypatch.setattr("atlas.tui.run_agent_tui", lambda: opened.append(True))
+    monkeypatch.setattr("atlas.panel.AtlasPanel.run", lambda self: opened.append(True))
     result = runner.invoke(app, ["agent"])
     assert result.exit_code == 0
     assert opened == [True]

@@ -1,5 +1,16 @@
 # ATLAS v0.1
 
+## Novo painel (desenvolvimento local)
+
+Execute `atlas` ou `atlas dashboard` para abrir o painel integrado, com scans,
+severidades, histórico, atividades e conversa no mesmo terminal. O comando
+`atlas agent` agora abre esse painel; o backend de chat separado não é iniciado.
+A conversa usa Ollama quando disponível e respostas locais quando indisponível.
+Selecione o projeto no campo superior e pressione Enter. Clique em um scan para
+consultar os findings atuais daquele projeto. Ctrl+S inicia scan, Ctrl+W alterna
+Watch, Ctrl+R gera relatório e Ctrl+Q sai. A arte é adaptada para caracteres de
+terminal; números e versão são os reais da instalação.
+
 ## Novidades da v0.1.2
 
 - Validacao de sintaxe Python, JSON e TOML, sem executar o codigo analisado.

@@ -94,21 +94,9 @@ def agent(
     advanced: bool = typer.Option(False, "--advanced", help="Exige o chat avançado do ATLAS."),
 ) -> None:
     """Abre a caixa de conversa do ATLAS no terminal."""
-    from atlas.agent_backend import find_hermes, launch_agent
+    from atlas.panel import AtlasPanel
 
-    if not find_hermes() and not advanced:
-        from atlas.tui import run_agent_tui
-
-        console.print("[yellow]Chat avançado indisponível; iniciando o agente local do ATLAS.[/yellow]")
-        run_agent_tui()
-        return
-
-    try:
-        exit_code = launch_agent(directory, model, continue_session)
-    except RuntimeError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(1) from exc
-    raise typer.Exit(exit_code)
+    AtlasPanel(project=directory).run()
 
 
 @app.command()

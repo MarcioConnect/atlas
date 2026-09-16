@@ -81,7 +81,7 @@ def assess_untrusted(text: str) -> list[GuardIncident]:
             line = expanded[:match.start()].count("\n") + 1
             incidents.append(GuardIncident(category, level, line, f"{category} intent detected; content omitted.", recommendation))
     encoded = bool(_decoded_candidates(normalized)) or bool(INVISIBLE.search(text))
-    if encoded:
+    if encoded and incidents:
         incidents.append(GuardIncident(
             "obfuscation", "SUSPICIOUS", 1,
             "Encoded or invisible instruction-like content detected; payload omitted.",
@@ -103,4 +103,3 @@ def assess_untrusted(text: str) -> list[GuardIncident]:
     for incident in incidents:
         unique[(incident.category, incident.line)] = incident
     return list(unique.values())
-

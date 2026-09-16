@@ -114,11 +114,10 @@ class OllamaReviewer:
             if verdict not in VERDICTS or severity not in SEVERITIES:
                 continue
             item = selected[index]
-            item.severity = "INFO" if verdict == "UNLIKELY" else severity
             item.description = redact(f"[AI {verdict}] {item.description}")[:500]
             reason = redact(str(review.get("reason", "")))[:500]
             recommendation = redact(str(review.get("recommendation", "")))[:500]
             item.evidence = redact(item.evidence)
-            item.recommendation = f"{item.recommendation} AI review: {reason} {recommendation}"[:1000]
+            item.recommendation = f"{item.recommendation} AI opinion ({severity}): {reason} {recommendation}"[:1000]
             reviewed += 1
         return AIReviewStatus(True, f"Reviewed locally with {self.model}", reviewed)

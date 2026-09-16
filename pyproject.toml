@@ -22,6 +22,7 @@ classifiers = [
   "Topic :: Security",
 ]
 dependencies = [
+  "pillow>=11,<13",
   "psutil>=7.0,<8",
   "SQLAlchemy>=2.0,<3",
   "textual>=7,<9",

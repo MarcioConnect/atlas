@@ -515,8 +515,10 @@ class AtlasAgentApp(AtlasApp):
 
 
 def run_tui() -> None:
-    AtlasApp().run()
+    from atlas.panel import AtlasPanel
+
+    AtlasPanel().run()
 
 
 def run_agent_tui() -> None:
-    AtlasAgentApp().run()
+    run_tui()
