@@ -1,6 +1,6 @@
-# ATLAS v0.1
+# ATLAS v0.1.3
 
-## Novo painel (desenvolvimento local)
+## Painel integrado
 
 Execute `atlas` ou `atlas dashboard` para abrir o painel integrado, com scans,
 severidades, histórico, atividades e conversa no mesmo terminal. O comando
@@ -10,6 +10,23 @@ Selecione o projeto no campo superior e pressione Enter. Clique em um scan para
 consultar os findings atuais daquele projeto. Ctrl+S inicia scan, Ctrl+W alterna
 Watch, Ctrl+R gera relatório e Ctrl+Q sai. A arte é adaptada para caracteres de
 terminal; números e versão são os reais da instalação.
+
+O banner reutiliza a garota do menu preto original em caracteres Braille
+brancos, sem navegador ou mosaico cinza. Use Windows Terminal com uma fonte monoespaçada;
+uma janela de 120 × 40 ou maior oferece melhor leitura. A navegação selecionada,
+os painéis e as barras de severidade têm destaque próprio.
+
+No Windows, o painel tenta iniciar silenciosamente o Ollama instalado em
+`%LOCALAPPDATA%\Programs\Ollama` (ou `OllamaCPU`). O modelo precisa estar baixado:
+`ollama pull qwen2.5-coder:3b`. O rodapé verifica novamente a disponibilidade a
+cada 30 segundos. Ter o serviço iniciado não significa que o modelo já esteja
+disponível. O Watch local continua funcionando sem Ollama.
+
+**Limites da IA:** o chat recebe a pergunta e um resumo dos registros do ATLAS;
+não navega pelos arquivos nem executa comandos. `atlas watch "C:\MeuProjeto" --ai`
+ativa a revisão de até 12 findings novos por análise, com pequenos trechos de código
+sanitizados. Os botões Scan/Watch do painel usam os scanners locais, sem ativar
+essa revisão por IA. Ollama e o modelo são instalações separadas do ATLAS.
 
 ## Novidades da v0.1.2
 
@@ -45,7 +62,7 @@ watch mode does not call an LLM and does not consume AI tokens.
 
 Quer apenas usar? Baixe o executável pronto na página da release:
 
-**[Baixar ATLAS-Security-Agent.exe — v0.1.2](https://github.com/MarcioConnect/atlas/releases/download/v0.1.2/ATLAS-Security-Agent.exe)**
+**[Baixar ATLAS-Security-Agent.exe — v0.1.3](https://github.com/MarcioConnect/atlas/releases/download/v0.1.3/ATLAS-Security-Agent.exe)**
 
 Depois, no PowerShell:
 
@@ -336,12 +353,12 @@ sanitized before display or storage. Passwords, tokens, API keys, cookies,
 connection strings, private keys, `.env` values, and common credential formats
 are replaced with `[REDACTED]` or omitted entirely.
 
-The Security Guard treats source files, pages, documents, API responses and
-model output as untrusted data. Embedded instructions cannot grant themselves
-authority. The deterministic layer detects prompt injection, attempted secret
-exfiltration, hidden/encoded instructions, privilege escalation, tool abuse and
-multi-step acquisition/encoding/transmission chains. It records sanitized
-evidence and blocks those instructions from influencing the Ollama request.
+Security Guard uses heuristic patterns on supported scanned source files to flag
+possible prompt injection, exfiltration and encoded instruction sequences.
+It is not a semantic security guarantee or a global interceptor for browsers,
+emails, tools or other agents. The Ollama reviewer receives source as untrusted
+data and has no execution tools; prompt instructions alone cannot guarantee that
+a model will ignore every injection. Results still require human review.
 
 For ordinary file activity, ATLAS stores only sanitized metadata: timestamp,
 event type, severity, and path. It does not store file contents. Sensitive
@@ -354,10 +371,8 @@ filenames are replaced with `[SENSITIVE_FILE]`.
 - Semgrep `auto` configuration and vulnerability databases can require network access.
 - Protected machine-wide checks may be incomplete without Administrator access;
   ATLAS reports reduced coverage rather than failing.
-- `atlas agent` opens the advanced ATLAS chat when its optional local backend
-  is installed, preserving the ATLAS profile and terminal branding. On a clean
-  computer it falls back to the portable rule-based ATLAS chat. Use
-  `atlas agent --advanced` when the advanced backend is required.
+- `atlas agent` opens the integrated panel. Legacy advanced-backend options do
+  not enable external agents. Chat uses Ollama when available, otherwise local rules.
 - The native scanner is intentionally conservative and is not a replacement for
   specialist scanners or a professional security review.
 - Ollama improves context but can still make mistakes; deterministic scanners

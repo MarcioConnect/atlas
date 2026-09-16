@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+import socket
+import subprocess
+import threading
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -12,6 +17,37 @@ from atlas.security import redact
 OLLAMA_URL = "http://127.0.0.1:11434"
 VERDICTS = {"CONFIRMED", "LIKELY", "UNCERTAIN", "UNLIKELY"}
 SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"}
+SERVICE_LOCK = threading.Lock()
+
+
+def ensure_local_service() -> bool:
+    def running():
+        try:
+            with socket.create_connection(("127.0.0.1", 11434), timeout=.3):
+                return True
+        except OSError:
+            return False
+
+    with SERVICE_LOCK:
+        if running():
+            return True
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local")) / "Programs"
+        executable = next((base / folder / "ollama.exe" for folder in ("Ollama", "OllamaCPU")
+                           if (base / folder / "ollama.exe").is_file()), None)
+        if executable is None:
+            return False
+        try:
+            environment = dict(os.environ, OLLAMA_HOST="127.0.0.1:11434", OLLAMA_NO_CLOUD="1")
+            subprocess.Popen([str(executable), "serve"], env=environment, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except OSError:
+            return False
+        for _ in range(20):
+            if running():
+                return True
+            time.sleep(.25)
+        return False
 
 
 @dataclass(slots=True)
@@ -46,7 +82,8 @@ class OllamaReviewer:
         try:
             payload = self._request("/api/tags")
             names = {str(item.get("name", "")) for item in payload.get("models", []) if isinstance(item, dict)}
-            if self.model not in names and self.model.split(":", 1)[0] not in {name.split(":", 1)[0] for name in names}:
+            expected = self.model if ":" in self.model else self.model + ":latest"
+            if expected not in names:
                 return AIReviewStatus(False, f"Model unavailable: {self.model}. Run: ollama pull {self.model}")
             return AIReviewStatus(True, f"Local model: {self.model}")
         except (OSError, ValueError, urllib.error.URLError, json.JSONDecodeError) as exc:

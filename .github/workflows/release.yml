@@ -6,7 +6,7 @@ on:
       tag:
         description: Existing release tag
         required: true
-        default: v0.1.2
+        default: v0.1.3
 
 permissions:
   contents: write
@@ -16,6 +16,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -28,4 +30,5 @@ jobs:
       - shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ inputs.tag }}" "release/ATLAS-Security-Agent.exe" --clobber
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: gh release upload "$env:RELEASE_TAG" "release/ATLAS-Security-Agent.exe" --clobber

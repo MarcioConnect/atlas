@@ -2,7 +2,13 @@
 
 All notable changes to ATLAS are documented in this file.
 
-## [Unreleased]
+## [0.1.3] - 2026-09-15
+
+- Integrate scan history, findings, Watch actions and local chat in one terminal panel.
+- Restore the original monochrome portrait and bound banner height on large terminals.
+- Start the installed local Ollama service without extra terminal windows and check exact model tags.
+- Handle panel scan failures without closing the interface; add responsive-layout regression tests.
+- Build public Windows executables from the release tag in GitHub Actions, without local profiles or databases.
 
 - Add opt-in, local-only Ollama review for new sanitized findings.
 - Add deterministic Security Guard detection for prompt injection, exfiltration,

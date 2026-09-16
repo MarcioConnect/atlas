@@ -4,6 +4,7 @@ from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
+from rich.text import Text
 from sqlalchemy import desc, select
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -17,7 +18,7 @@ from atlas.database import Database
 from atlas.models import CodeScan
 from atlas.report import generate_markdown_report
 from atlas.security import redact
-from atlas.terminal_art import AtlasPortrait
+from atlas.terminal_art import AtlasPortrait, AtlasWordmark
 
 
 class AtlasPanel(App):
@@ -25,38 +26,58 @@ class AtlasPanel(App):
     BINDINGS = [("ctrl+q", "quit", "Sair"), ("ctrl+s", "scan", "Scan"),
                 ("ctrl+r", "report", "Relatório"), ("ctrl+w", "watch", "Watch")]
     CSS = """
-    Screen { background: #03080c; color: #bacbdd; }
-    #top { height: 2; border-bottom: solid #526777; color: #62baff; }
+    Screen { background: #000000; color: #d4d4d4; }
+    Static, RichLog, DataTable { background: #000000; }
+    DataTable > .datatable--header { background: #000000; color: #808080; text-style: none; }
+    DataTable > .datatable--cursor { background: #e4e4e4; color: #000000; }
+    DataTable > .datatable--hover { background: #181818; color: #ffffff; }
+    #top { height: 2; border-bottom: solid #444444; color: #bdbdbd; padding: 0 1; }
     #layout { height: 1fr; }
-    #nav { width: 22; padding: 1; border-right: solid #526777; }
-    Button { background: #08121b; color: #b8cde0; border: none; height: 3; width: 100%; margin-bottom: 1; }
-    Button:hover, Button:focus { background: #12314b; color: #62baff; }
+    #nav { width: 22; padding: 1; border-right: solid #444444; }
+    #nav-brand { height: 4; color: #ffffff; text-style: bold; content-align: left middle; }
+    #nav-note { height: 1fr; content-align: left bottom; color: #707070; }
+    Button { background: #000000; color: #c5c5c5; border: none; height: 3; width: 100%; margin-bottom: 1; content-align: left middle; padding: 0 1; text-style: none; }
+    Button:hover { background: #181818; color: #ffffff; }
+    Button:focus, Button.selected { background: #e4e4e4; color: #000000; text-style: bold; }
     #workspace { padding: 0 1; }
     .row { height: 1fr; min-height: 10; }
-    #banner-row { height: 1.4fr; min-height: 13; }
-    .box { border: round #526777; padding: 1; margin: 0 1 1 0; }
+    #work-row { min-height: 15; }
+    #banner-row { height: 1.8fr; min-height: 16; max-height: 22; }
+    .box { background: #000000; border: solid #444444; border-title-color: #bdbdbd; border-title-style: none; padding: 1; margin: 0 1 1 0; }
     #hero { width: 2fr; height: 100%; }
-    #wordmark { width: 1fr; content-align: center middle; color: #eff6fc; }
-    #portrait { width: 48%; color: #bacbdd; }
+    #wordmark { width: 1fr; content-align: center middle; color: #ffffff; }
+    #portrait { width: 50%; height: 100%; color: #d4d4d4; }
+    #hero { padding: 0 1; }
     #overview { width: 1fr; height: 100%; }
     #scans { width: 2fr; height: 100%; }
     #severity { width: 1fr; height: 100%; }
     #activity { width: 2fr; height: 100%; }
     #actions { width: 1fr; height: 100%; }
     #actions Button { height: 2; margin: 0; }
-    #details { height: auto; max-height: 9; }
-    #chat { height: 3; border: round #526777; }
+    #details { height: auto; max-height: 9; color: #909090; }
+    #chat { height: 3; border: solid #444444; border-title-color: #bdbdbd; }
     #chat.expanded { height: 9; }
+    Input { background: #000000; color: #ffffff; border: solid #444444; }
+    Input:focus { background: #080808; border: solid #c5c5c5; }
+    Input > .input--placeholder { color: #707070; }
     #command { dock: bottom; }
     #directory { height: 3; display: none; }
     #directory.visible { display: block; }
-    #ai-status { height: 1; color: #59baff; }
+    #ai-status { height: 1; color: #909090; padding: 0 1; }
+    Footer { background: #000000; color: #808080; }
+    FooterKey { background: #000000; color: #a0a0a0; }
+    FooterKey > .footer-key--key { background: #000000; color: #ffffff; }
+    FooterKey:hover { background: #181818; }
+    * { scrollbar-background: #000000; scrollbar-color: #444444; scrollbar-color-hover: #808080; scrollbar-color-active: #bdbdbd; }
     Screen.compact #portrait { width: 44%; }
     Screen.compact #nav { width: 18; }
     Screen.compact #actions { padding: 0 1; }
     Screen.compact #actions Button { height: 1; min-height: 1; }
     Screen.compact .row { min-height: 8; }
-    Screen.compact #banner-row { min-height: 11; }
+    Screen.compact #work-row { min-height: 9; }
+    Screen.compact #banner-row { height: 11; min-height: 11; max-height: 11; }
+    Screen.compact #nav-brand { height: 2; }
+    Screen.compact #nav Button { height: 2; }
     .hidden { display: none; }
     """
 
@@ -73,24 +94,25 @@ class AtlasPanel(App):
         yield Static(f" ATLAS v{__version__}  |  Security Agent", id="top")
         with Horizontal(id="layout"):
             with Vertical(id="nav"):
+                yield Static("/\\  A T L A S", id="nav-brand")
                 for key, label in [("home", "⌂  Início"), ("scan", "⌕  Scan"), ("report", "▤  Relatórios"),
-                                   ("history", "◷  Histórico"), ("settings", "⚙  Configurações"),
+                                   ("history", "◷  Histórico"), ("settings", "⚙  Ajustes"),
                                    ("tools", "◇  Ferramentas"), ("help", "?  Ajuda"), ("exit", "↪  Sair")]:
                     yield Button(label, id=f"nav-{key}")
+                yield Static("LOCAL FIRST\n\nSeus arquivos.\nSeu controle.\n\nSecurity Agent", id="nav-note")
             with VerticalScroll(id="workspace"):
                 yield Input(str(self.project), placeholder="Diretório do projeto — Enter para selecionar", id="directory")
                 with Horizontal(classes="row", id="banner-row"):
                     with Horizontal(id="hero", classes="box"):
-                        yield Static("[b]  ▄▄    ▄▄▄▄▄  ▄      ▄▄    ▄▄▄▄\n ▄██▄     █    █     ▄██▄   █\n █▄▄█     █    █     █▄▄█   ▀▀▀█\n █  █     █    █▄▄▄  █  █   ▄▄▄█[/b]\n\nS E C U R I T Y  A G E N T\n\nANALISE · PREVINA · EVOLUA", id="wordmark")
+                        yield AtlasWordmark(id="wordmark")
                         yield AtlasPortrait(id="portrait")
                     yield Static(id="overview", classes="box", markup=False)
                 with Horizontal(classes="row"):
                     yield DataTable(id="scans", classes="box", cursor_type="row")
                     yield Static(id="severity", classes="box", markup=False)
-                with Horizontal(classes="row"):
+                with Horizontal(classes="row", id="work-row"):
                     yield RichLog(id="activity", classes="box", markup=False, wrap=True)
                     with Vertical(id="actions", classes="box"):
-                        yield Static("[ AÇÕES RÁPIDAS ]")
                         for key, label in [("scan", "▷ Iniciar scan"), ("watch", "◉ Iniciar / parar Watch"),
                                            ("directory", "□ Selecionar diretório"), ("report", "▤ Gerar relatório"),
                                            ("refresh", "↻ Atualizar")]:
@@ -102,18 +124,26 @@ class AtlasPanel(App):
         yield Footer()
 
     def on_mount(self):
+        for widget, title in {"hero": " ATLAS / SECURITY AGENT ", "overview": " VISÃO GERAL ",
+                              "scans": " ÚLTIMOS SCANS ", "severity": " SEVERIDADE ",
+                              "activity": " ATIVIDADE EM TEMPO REAL ", "actions": " AÇÕES RÁPIDAS ",
+                              "chat": " ATLAS / ASSISTENTE LOCAL "}.items():
+            self.query_one("#" + widget).border_title = title
+        self.query_one("#nav-home").add_class("selected")
         self.query_one("#scans", DataTable).add_columns("#", "DATA/HORA", "DIRETÓRIO", "STATUS")
         self.query_one("#chat", RichLog).write("ATLAS integrado ao painel. Respostas locais disponíveis.")
         self.refresh_data()
         self.set_interval(2, self.refresh_data)
         self.run_worker(self._check_ai, thread=True)
+        self.set_interval(30, lambda: self.run_worker(self._check_ai, thread=True, group="ai-status", exclusive=True))
 
     def on_resize(self, event):
         self.screen.set_class(event.size.width < 130, "compact")
 
     def _check_ai(self):
-        from atlas.ollama_ai import OllamaReviewer
+        from atlas.ollama_ai import OllamaReviewer, ensure_local_service
 
+        ensure_local_service()
         status = OllamaReviewer(self.project, Settings.load().ollama_model, timeout=3).availability()
         self.call_from_thread(self.query_one("#ai-status", Static).update, status.detail)
 
@@ -133,15 +163,23 @@ class AtlasPanel(App):
             self._scans_key = scans_key
         findings = [f for p in self.database.code_projects() for f in self.database.code_findings(p) if f.state != "RESOLVED"]
         counts = Counter(f.severity for f in findings)
-        self.query_one("#severity", Static).update("[ FINDINGS POR SEVERIDADE ]\n\n" + "\n".join(
-            f"{label:<12} {counts[level]:>4}  {'━' * min(counts[level], 16)}"
-            for level, label in [("CRITICAL", "Crítico"), ("HIGH", "Alto"), ("MEDIUM", "Médio"), ("LOW", "Baixo"), ("INFO", "Informação")]))
+        severity = Text()
+        maximum = max(counts.values(), default=1) or 1
+        bar_width = max(3, min(16, self.query_one("#severity").content_size.width - 19))
+        for level, label, color in [("CRITICAL", "Crítico", "#ff5555"), ("HIGH", "Alto", "#ff9852"),
+                                     ("MEDIUM", "Médio", "#f4cc55"), ("LOW", "Baixo", "#62baff"),
+                                     ("INFO", "Informação", "#96a9ba")]:
+            filled = round(bar_width * counts[level] / maximum)
+            severity.append(f"● {label:<10} {counts[level]:>4}  ", style=color)
+            severity.append("━" * filled, style=color)
+            severity.append("─" * (bar_width - filled) + "\n", style="#263b4a")
+        self.query_one("#severity", Static).update(severity)
         self.query_one("#overview", Static).update(
-            f"[ VISÃO GERAL ]\n\nProjetos: {len(self.database.code_projects())}\n"
+            f"Projetos: {len(self.database.code_projects())}\n\n"
             f"Arquivos no último scan: {scans[0].files_analyzed if scans else 0}\n"
             f"Findings ativos: {len(findings)}\n\nWatch: {self.watchdog.state.status}\n"
             f"Último scan: {scans[0].started_at.astimezone():%d/%m %H:%M}" if scans else
-            "[ VISÃO GERAL ]\n\nNenhum scan registrado.\nSelecione um projeto e inicie um scan.")
+            "Nenhum scan registrado.\n\nSelecione um projeto e inicie um scan.")
         log = self.query_one("#activity", RichLog)
         log.clear()
         for event in reversed(self.database.recent_monitor_events(10)):
@@ -166,6 +204,9 @@ class AtlasPanel(App):
         self.query_one("#details").scroll_visible()
 
     def on_button_pressed(self, event: Button.Pressed):
+        if (event.button.id or "").startswith("nav-"):
+            for button in self.query("#nav Button"):
+                button.set_class(button is event.button, "selected")
         key = (event.button.id or "").split("-", 1)[-1]
         if key == "exit":
             self.exit()
@@ -183,6 +224,9 @@ class AtlasPanel(App):
         elif key == "help":
             self.status("Ctrl+S scan · Ctrl+W Watch · Ctrl+R relatório · Ctrl+Q sair. Chat: /scan /watch /report ou perguntas sobre segurança.")
         else:
+            if key == "home":
+                self.query_one("#directory", Input).remove_class("visible")
+                self.status("Projeto: " + str(self.project))
             self.refresh_data()
             self.query_one("#workspace").scroll_home()
 
@@ -198,6 +242,8 @@ class AtlasPanel(App):
         try:
             self.watchdog.scan_now()
             self.call_from_thread(self.status, f"Scan: {self.watchdog.state.status}. Novos findings: {len(self.watchdog.state.new)}")
+        except Exception as exc:
+            self.call_from_thread(self.status, "Falha no scan: " + type(exc).__name__ + ". Consulte o histórico e tente novamente.")
         finally:
             self.busy = False
 

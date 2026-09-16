@@ -47,3 +47,18 @@ def test_ollama_unavailable_is_nonfatal(tmp_path):
     status = OllamaReviewer(tmp_path, "missing", opener=unavailable).availability()
     assert not status.available
     assert "Ollama unavailable" in status.detail
+
+
+def test_ollama_requires_exact_model_tag(tmp_path):
+    def opener(request, timeout):
+        return Response(json.dumps({"models": [{"name": "qwen2.5-coder:7b"}]}).encode())
+
+    assert not OllamaReviewer(tmp_path, "qwen2.5-coder:3b", opener=opener).availability().available
+
+
+def test_running_ollama_is_not_started_again(monkeypatch):
+    from atlas.ollama_ai import ensure_local_service
+
+    monkeypatch.setattr("atlas.ollama_ai.socket.create_connection", lambda *a, **kw: Response())
+    monkeypatch.setattr("atlas.ollama_ai.subprocess.Popen", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("duplicate service")))
+    assert ensure_local_service()
