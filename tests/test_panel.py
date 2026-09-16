@@ -66,7 +66,8 @@ def test_panel_fits_terminal_and_reports_ai_status(tmp_path, monkeypatch):
     async def run():
         for size in [(160, 55), (120, 40), (160, 90), (120, 70)]:
             async with AtlasPanel(Database(tmp_path / 'layout.db'), tmp_path).run_test(size=size) as pilot:
-                await pilot.pause(.2)
+                # Thread workers can take a little longer to start on hosted Windows runners.
+                await pilot.pause(1)
                 assert 'Local model: test' in str(pilot.app.query_one('#ai-status').render())
                 command = pilot.app.query_one('#command')
                 assert command.region.bottom <= size[1]
