@@ -1,4 +1,4 @@
-# ATLAS v0.1.3
+# ATLAS v0.1.4
 
 ## Painel integrado
 

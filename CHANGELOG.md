@@ -2,6 +2,14 @@
 
 All notable changes to ATLAS are documented in this file.
 
+## [0.1.4] - 2026-09-16
+
+- Add automatic project source retrieval for the local Ollama assistant.
+- Add content and line focused context, sanitized in-memory cache, source coverage, and conversation controls.
+- Add `/context`, `/clear`, `/ai on` and `/ai off` to the integrated panel.
+- Preserve active findings after unrelated edits and reduce credential, Docker and dependency false positives.
+- Harden local model transport, Windows reparse point traversal and malformed model responses.
+
 ## [Unreleased]
 
 - Add automatic project-scoped source retrieval, content search, line windows and sanitized memory caching.
