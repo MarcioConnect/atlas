@@ -2,6 +2,17 @@
 
 All notable changes to ATLAS are documented in this file.
 
+## [Unreleased]
+
+- Add automatic project-scoped source retrieval, content search, line windows and sanitized memory caching.
+- Add per-project conversational context, source coverage, `/context`, `/clear`, and persistent `/ai on|off` for panel scans.
+- Respect `atlas agent --model` for the local assistant and optional Watch review.
+- Fix false resolution of existing findings after unrelated edits; only claim coverage for readable files.
+- Reduce credential false positives in Python comments, environment lookups and placeholders; support quoted JSON keys.
+- Distinguish privileged Docker configuration from verified running containers.
+- Reject Ollama redirects, bypass HTTP proxies for loopback requests, and handle malformed model responses.
+- Preserve source line numbers while redacting multiline credentials; exclude Windows reparse points from traversal.
+
 ## [0.1.3] - 2026-09-15
 
 - Integrate scan history, findings, Watch actions and local chat in one terminal panel.

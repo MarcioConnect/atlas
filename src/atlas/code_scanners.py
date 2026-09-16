@@ -15,14 +15,14 @@ from typing import Any
 from atlas.config import Settings
 from atlas.file_scope import ignored_name, scoped_files
 from atlas.models import Severity
-from atlas.security import redact
+from atlas.security import SKIP_DIRS, redact
 from atlas.security_guard import LEVELS, assess_untrusted
 
 IGNORED_DIRS = {
     ".git", ".hg", ".svn", ".tox", ".nox", "node_modules", "venv", ".venv",
     "__pycache__", "_pycache_", "site-packages", "dist", "build", "appdata",
     ".vscode", ".idea", "docs", "documentation", "examples", "vendor", "third_party", "generated",
-}
+} | SKIP_DIRS
 PRIORITY_SUFFIXES = {".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".ps1", ".bat", ".json", ".yaml", ".yml", ".toml"}
 PRIORITY_NAMES = {"dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"}
 INSTALL_HINTS = {
@@ -175,8 +175,10 @@ class LocalCodeScanners:
                 if path.exists() and path.is_file() and is_priority_file(path) and not is_ignored(path, self.project):
                     targets.append(path)
         result = CodeScanResult(files_analyzed=len(targets))
-        self._native(targets, result, changed_lines=changed_lines)
-        self._security_guard(targets, result, changed_lines=changed_lines)
+        # Reconcile complete findings for each changed file. Filtering out unchanged
+        # lines here would falsely resolve still-present findings in that file.
+        self._native(targets, result)
+        self._security_guard(targets, result)
         self._syntax(targets, result)
         self._ruff(targets, result)
         self._semgrep(targets, result)
@@ -292,9 +294,9 @@ class LocalCodeScanners:
 
     def _native(self, targets: list[Path], result: CodeScanResult, changed_lines: dict[str, set[int]] | None = None) -> None:
         scanner = "ATLAS Native"
-        result.coverage[scanner] = {str(path.resolve()).casefold() for path in targets}
+        result.coverage[scanner] = set()
         secret_pattern = re.compile(
-            r"(?i)\b(password|passwd|token|secret|api[_-]?key|connection[_-]?string)\s*[:=]\s*"
+            r"(?i)\b(password|passwd|token|secret|api[_-]?key|connection[_-]?string)['\"]?\s*[:=]\s*"
             r"(?:['\"][A-Za-z0-9_./+:-]{6,}['\"]|[A-Za-z0-9_./+:-]{12,})"
         )
         for path in targets:
@@ -304,13 +306,38 @@ class LocalCodeScanners:
                 content = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
+            result.coverage[scanner].add(str(path.resolve()).casefold())
+            literal_secret_lines = None
+            if path.suffix.casefold() == '.py':
+                literal_secret_lines = set()
+                try:
+                    tree = ast.parse(content)
+                except (SyntaxError, ValueError):
+                    tree = ast.Module(body=[], type_ignores=[])
+                for node in ast.walk(tree):
+                    if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                        value = node.value
+                        targets_ast = node.targets if isinstance(node, ast.Assign) else [node.target]
+                        names = [getattr(t, 'id', getattr(t, 'attr', '')) for t in targets_ast]
+                        if isinstance(value, ast.Constant) and isinstance(value.value, str) and any(
+                            re.search(r'(?i)(password|passwd|token|secret|api[_-]?key|connection[_-]?string)', n) for n in names
+                        ):
+                            literal_secret_lines.add(node.lineno)
+                    if isinstance(node, ast.Dict):
+                        for key, value in zip(node.keys, node.values, strict=True):
+                            if (isinstance(key, ast.Constant) and isinstance(key.value, str)
+                                    and isinstance(value, ast.Constant) and isinstance(value.value, str)
+                                    and re.search(r'(?i)(password|token|secret|api[_-]?key)', key.value)):
+                                literal_secret_lines.add(key.lineno)
             allowed_lines = None
             if changed_lines is not None:
                 allowed_lines = changed_lines.get(str(path).casefold())
             for line_number, line in enumerate(content.splitlines(), 1):
                 if allowed_lines is not None and line_number not in allowed_lines:
                     continue
-                if secret_pattern.search(line):
+                secret_match = secret_pattern.search(line)
+                placeholder = re.search(r'''(?i)["'](?:changeme|change-me|example|dummy|placeholder|your[_-][\w-]+|\[REDACTED\])["']''', line)
+                if secret_match and not placeholder and not line.lstrip().startswith(('#', '//')) and (literal_secret_lines is None or line_number in literal_secret_lines):
                     result.findings.append(NormalizedFinding(
                         Severity.HIGH.value, scanner, "hardcoded-secret", str(path), line_number,
                         "Possible hardcoded credential", "Sensitive value detected; value [REDACTED]",
@@ -326,12 +353,12 @@ class LocalCodeScanners:
                     ))
             if path.suffix.lower() == ".py":
                 self._native_python_ast(path, content, result, allowed_lines)
-            lower = content.lower()
-            if path.name.lower() in PRIORITY_NAMES and ("privileged: true" in lower or '"privileged": true' in lower):
-                line = lower[:lower.index("privileged: true")].count("\n") + 1 if "privileged: true" in lower else None
+            privileged = re.search(r'(?im)^\s*privileged:\s*true\s*(?:#.*)?$|"privileged"\s*:\s*true\b', content)
+            if path.name.lower() in PRIORITY_NAMES and privileged:
+                line = content[:privileged.start()].count('\n') + 1
                 result.findings.append(NormalizedFinding(
-                    Severity.CRITICAL.value, scanner, "docker-privileged", str(path), line,
-                    "Privileged container enabled", "privileged mode is enabled; surrounding configuration omitted.",
+                    Severity.HIGH.value, scanner, "docker-privileged", str(path), line,
+                    "Privileged mode declared in configuration", "Configuration allows privileged mode; running container not verified.",
                     "Remove privileged mode and grant only the capabilities the workload needs.",
                 ))
             if path.name.lower() == "dockerfile" and not re.search(r"(?im)^\s*USER\s+(?!root\b|0\b)\S+", content):

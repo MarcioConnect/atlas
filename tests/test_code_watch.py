@@ -155,3 +155,28 @@ def test_full_scan_seeds_incremental_line_snapshot(tmp_path: Path, monkeypatch):
     target.write_text("first = 1\nsecond = 3\n", encoding="utf-8")
     changed = watcher._changed_line_map([target])
     assert changed == {str(target.resolve()).casefold(): {2}}
+
+
+def test_unrelated_edit_does_not_resolve_live_issue(tmp_path, monkeypatch):
+    monkeypatch.setattr('atlas.code_scanners.shutil.which', lambda name: None)
+    target = tmp_path / 'app.py'
+    target.write_text('eval(user_input)\ncount = 1\n')
+    watcher = CodeWatchdog(tmp_path, Database(tmp_path / 'watch.db'))
+    assert any(f.rule_id == 'python-eval' for f in watcher.scan_now()['NEW'])
+    target.write_text('eval(user_input)\ncount = 2\n')
+    result = watcher.scan_now([target])
+    assert not result['RESOLVED']
+    assert any(f.rule_id == 'python-eval' for f in result['EXISTING'])
+    target.write_text('value = user_input\ncount = 2\n')
+    assert any(f.rule_id == 'python-eval' for f in watcher.scan_now([target])['RESOLVED'])
+
+
+def test_oversized_file_is_not_falsely_marked_resolved(tmp_path, monkeypatch):
+    monkeypatch.setattr('atlas.code_scanners.shutil.which', lambda name: None)
+    target = tmp_path / 'app.py'
+    target.write_text('eval(user_input)\n')
+    watcher = CodeWatchdog(tmp_path, Database(tmp_path / 'watch.db'))
+    watcher.scan_now()
+    target.write_text('eval(user_input)\n#' + 'x' * 2_000_000)
+    result = watcher.scan_now([target])
+    assert not any(f.rule_id == 'python-eval' for f in result['RESOLVED'])

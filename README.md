@@ -5,7 +5,8 @@
 Execute `atlas` ou `atlas dashboard` para abrir o painel integrado, com scans,
 severidades, histórico, atividades e conversa no mesmo terminal. O comando
 `atlas agent` agora abre esse painel; o backend de chat separado não é iniciado.
-A conversa usa Ollama quando disponível e respostas locais quando indisponível.
+A conversa usa Ollama quando disponível e informa explicitamente quando a análise
+por IA não pôde ser executada. Scanners locais continuam disponíveis sem modelo.
 Selecione o projeto no campo superior e pressione Enter. Clique em um scan para
 consultar os findings atuais daquele projeto. Ctrl+S inicia scan, Ctrl+W alterna
 Watch, Ctrl+R gera relatório e Ctrl+Q sai. A arte é adaptada para caracteres de
@@ -22,11 +23,29 @@ No Windows, o painel tenta iniciar silenciosamente o Ollama instalado em
 cada 30 segundos. Ter o serviço iniciado não significa que o modelo já esteja
 disponível. O Watch local continua funcionando sem Ollama.
 
-**Limites da IA:** o chat recebe a pergunta e um resumo dos registros do ATLAS;
-não navega pelos arquivos nem executa comandos. `atlas watch "C:\MeuProjeto" --ai`
+**Leitura automática no chat:** a cada pergunta, o ATLAS busca nomes e conteúdo
+em até 64 arquivos elegíveis e envia trechos de até 8 arquivos ao modelo.
+Prioriza nomes citados, funções, linhas explícitas (como `src/app.py:180`) e
+alterações recentes. Os trechos podem vir do meio do arquivo, preservando as linhas
+originais. O cache guarda somente conteúdo sanitizado, em memória, e é atualizado
+quando o arquivo muda. Fontes e cobertura parcial aparecem na resposta.
+Ignora `.env`, dependências, arquivos privados e binários, e oculta linhas com
+possíveis credenciais. O contexto é limitado a 12 mil caracteres; não representa
+uma varredura completa do computador. O modelo não executa comandos.
+`atlas watch "C:\MeuProjeto" --ai`
 ativa a revisão de até 12 findings novos por análise, com pequenos trechos de código
-sanitizados. Os botões Scan/Watch do painel usam os scanners locais, sem ativar
-essa revisão por IA. Ollama e o modelo são instalações separadas do ATLAS.
+sanitizados. No painel, `/ai on` ativa essa revisão nos próximos Scan/Watch e
+`/ai off` a desativa; a preferência fica salva. Pare o Watch antes de alternar.
+Ollama e o modelo são instalações separadas do ATLAS.
+
+O chat mantém as últimas interações somente na memória da sessão e do projeto.
+`/context` mostra as fontes utilizadas; `/clear` limpa a conversa e o cache.
+Use `atlas agent --in "C:\MeuProjeto" --model qwen2.5-coder:3b` para escolher
+o projeto e um modelo local instalado. Trocar o projeto também limpa o contexto.
+
+O Watch reanalisa por inteiro os arquivos alterados, incluindo os achados que
+continuam presentes. Isso evita marcar um risco como resolvido quando apenas
+outra linha do mesmo arquivo mudou. A seleção dos arquivos continua incremental.
 
 ## Novidades da v0.1.2
 

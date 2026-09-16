@@ -104,3 +104,37 @@ def test_scan_failure_does_not_crash_panel(tmp_path, monkeypatch):
             assert 'Falha no scan' in str(pilot.app.query_one('#details').render())
 
     asyncio.run(run())
+
+
+def test_chat_controls_and_ai_preference(tmp_path, monkeypatch):
+    from atlas.config import Settings
+    from atlas.ollama_ai import AIReviewStatus
+
+    monkeypatch.setenv('APPDATA', str(tmp_path / 'config'))
+    monkeypatch.setattr('atlas.ollama_ai.ensure_local_service', lambda: False)
+    monkeypatch.setattr('atlas.ollama_ai.OllamaReviewer.availability', lambda self: AIReviewStatus(False, 'offline'))
+
+    async def run():
+        async with AtlasPanel(Database(tmp_path / 'controls.db'), tmp_path).run_test(size=(120, 40)) as pilot:
+            field = pilot.app.query_one('#command')
+            field.focus()
+            pilot.app.chat_busy = True
+            field.value = 'Minha próxima pergunta'
+            await pilot.press('enter')
+            assert field.value == 'Minha próxima pergunta'
+            pilot.app.chat_busy = False
+            field.value = '/ai on'
+            await pilot.press('enter')
+            assert pilot.app.watchdog.ai_enabled and Settings.load().ai_review_enabled
+            field.value = '/ai off'
+            await pilot.press('enter')
+            assert not pilot.app.watchdog.ai_enabled
+            pilot.app.assistant.history = [{'role': 'user', 'content': 'old'}]
+            field.value = '/clear'
+            await pilot.press('enter')
+            assert not pilot.app.assistant.history
+            field.value = '/unknown'
+            await pilot.press('enter')
+            assert 'desconhecido' in str(pilot.app.query_one('#details').render())
+
+    asyncio.run(run())

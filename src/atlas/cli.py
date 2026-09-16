@@ -89,14 +89,14 @@ def main(
 @app.command()
 def agent(
     directory: Path = typer.Option(Path.cwd(), "--in", help="Diretorio de trabalho do agente."),
-    model: str | None = typer.Option(None, "--model", "-m", help="Modelo gratuito alternativo."),
+    model: str | None = typer.Option(None, "--model", "-m", help="Modelo Ollama instalado para esta sessão."),
     continue_session: bool = typer.Option(False, "--continue", "-c", help="Continua a ultima conversa."),
-    advanced: bool = typer.Option(False, "--advanced", help="Exige o chat avançado do ATLAS."),
+    advanced: bool = typer.Option(False, "--advanced", help="Compatibilidade: abre o painel integrado."),
 ) -> None:
     """Abre a caixa de conversa do ATLAS no terminal."""
     from atlas.panel import AtlasPanel
 
-    AtlasPanel(project=directory).run()
+    AtlasPanel(project=directory, model=model).run()
 
 
 @app.command()

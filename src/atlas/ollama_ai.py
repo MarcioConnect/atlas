@@ -20,6 +20,11 @@ SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"}
 SERVICE_LOCK = threading.Lock()
 
 
+class LocalOnlyRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.URLError('Ollama redirect blocked')
+
+
 def ensure_local_service() -> bool:
     def running():
         try:
@@ -62,7 +67,8 @@ class OllamaReviewer:
         self.project = project.resolve()
         self.model = model
         self.timeout = timeout
-        self.opener = opener or urllib.request.urlopen
+        self.opener = opener or urllib.request.build_opener(
+            urllib.request.ProxyHandler({}), LocalOnlyRedirect()).open
 
     def _request(self, endpoint: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         data = json.dumps(payload).encode("utf-8") if payload is not None else None
@@ -72,7 +78,9 @@ class OllamaReviewer:
             method="POST" if data is not None else "GET",
         )
         with self.opener(request, timeout=self.timeout) as response:
-            body = response.read(2_000_000)
+            body = response.read(2_000_001)
+        if len(body) > 2_000_000:
+            raise ValueError('Ollama response too large')
         parsed = json.loads(body.decode("utf-8"))
         if not isinstance(parsed, dict):
             raise TypeError("invalid Ollama response")
@@ -81,22 +89,34 @@ class OllamaReviewer:
     def availability(self) -> AIReviewStatus:
         try:
             payload = self._request("/api/tags")
-            names = {str(item.get("name", "")) for item in payload.get("models", []) if isinstance(item, dict)}
+            models = payload.get('models')
+            if not isinstance(models, list):
+                raise TypeError('invalid model list')
+            names = {str(item.get("name", "")) for item in models if isinstance(item, dict)}
             expected = self.model if ":" in self.model else self.model + ":latest"
             if expected not in names:
                 return AIReviewStatus(False, f"Model unavailable: {self.model}. Run: ollama pull {self.model}")
             return AIReviewStatus(True, f"Local model: {self.model}")
-        except (OSError, ValueError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        except (OSError, ValueError, TypeError, urllib.error.URLError, json.JSONDecodeError) as exc:
             return AIReviewStatus(False, f"Ollama unavailable: {type(exc).__name__}")
 
     def _snippet(self, finding: Any) -> str:
+        from atlas.privacy import sanitize_source
+        from atlas.project_context import allowed_source
+
         path = Path(str(finding.file_path)).resolve()
+        if not allowed_source(Path(str(finding.file_path)), self.project):
+            return '[SOURCE OMITTED]'
         try:
             path.relative_to(self.project)
         except ValueError:
             return "[SOURCE OMITTED]"
         try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            with path.open('rb') as stream:
+                raw = stream.read(128_001)
+            if len(raw) > 128_000 or b'\0' in raw:
+                return '[SOURCE OMITTED]'
+            lines = sanitize_source(raw.decode('utf-8', errors='replace')).splitlines()
         except OSError:
             return "[SOURCE UNAVAILABLE]"
         line = int(finding.line or 1)
@@ -137,19 +157,23 @@ class OllamaReviewer:
             })
             content = json.loads(str(response.get("response", "{}")))
             reviews = content.get("reviews", []) if isinstance(content, dict) else []
+            if not isinstance(reviews, list):
+                raise TypeError('invalid reviews list')
         except (OSError, ValueError, TypeError, urllib.error.URLError, json.JSONDecodeError) as exc:
             return AIReviewStatus(False, f"AI review failed: {type(exc).__name__}")
         reviewed = 0
+        seen = set()
         for review in reviews:
-            if not isinstance(review, dict) or not isinstance(review.get("index"), int):
+            if not isinstance(review, dict) or type(review.get("index")) is not int:
                 continue
             index = review["index"]
-            if index < 0 or index >= len(selected):
+            if index < 0 or index >= len(selected) or index in seen:
                 continue
             verdict = str(review.get("verdict", "UNCERTAIN")).upper()
             severity = str(review.get("severity", "INFO")).upper()
             if verdict not in VERDICTS or severity not in SEVERITIES:
                 continue
+            seen.add(index)
             item = selected[index]
             item.description = redact(f"[AI {verdict}] {item.description}")[:500]
             reason = redact(str(review.get("reason", "")))[:500]

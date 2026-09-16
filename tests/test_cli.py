@@ -53,6 +53,15 @@ def test_agent_falls_back_to_portable_local_ui(monkeypatch):
     assert opened == [True]
 
 
+def test_agent_model_reaches_chat_and_watch(monkeypatch):
+    opened = []
+    monkeypatch.setattr('atlas.panel.AtlasPanel.run', lambda self: opened.append(
+        (self.assistant.model, self.watchdog.ai_model)))
+    result = runner.invoke(app, ['agent', '--model', 'local-test:3b'])
+    assert result.exit_code == 0
+    assert opened == [('local-test:3b', 'local-test:3b')]
+
+
 def test_config_adds_project_and_risk_override(monkeypatch, tmp_path):
     project = tmp_path / "Project With Spaces"
     project.mkdir()

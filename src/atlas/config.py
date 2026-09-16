@@ -45,6 +45,7 @@ class Settings:
     risk_overrides: dict[str, str] = field(default_factory=dict)
     ollama_model: str = DEFAULT_OLLAMA_MODEL
     ollama_timeout_seconds: float = 45.0
+    ai_review_enabled: bool = False
 
     @classmethod
     def load(cls) -> Settings:
