@@ -2,6 +2,12 @@
 
 All notable changes to ATLAS are documented in this file.
 
+## [0.1.5] - 2026-09-18
+
+- Add executive summaries and severity/state metrics to Markdown reports.
+- Replace the plain HTML export with a responsive dashboard, severity bars, print layout and collapsible details.
+- Keep report output local, sanitized and compatible with project-specific and consolidated exports.
+
 ## [0.1.4] - 2026-09-16
 
 - Add automatic project source retrieval for the local Ollama assistant.

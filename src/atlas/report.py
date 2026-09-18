@@ -30,6 +30,39 @@ def _date(value: datetime | None) -> str:
     return value.astimezone().strftime("%d/%m/%Y %H:%M:%S") if value else "-"
 
 
+def _summary(database: Database, project_path: Path | None = None) -> dict[str, int]:
+    """Return stable counters shared by Markdown and HTML reports."""
+    system_scan = database.latest_scan()
+    findings = list(system_scan.findings if system_scan else [])
+    projects = [project_path.resolve()] if project_path else _known_projects(database)
+    for project in projects:
+        latest = database.latest_code_scan(str(project))
+        if latest:
+            findings.extend(database.code_findings(str(project)))
+    result = {"total": len(findings), "critical": 0, "high": 0, "medium": 0,
+              "low": 0, "info": 0, "new": 0, "existing": 0, "resolved": 0,
+              "score": int(system_scan.score) if system_scan else -1}
+    for finding in findings:
+        severity = str(getattr(finding, "severity", "INFO")).casefold()
+        state = str(getattr(finding, "state", "")).casefold()
+        if severity in result:
+            result[severity] += 1
+        if state in {"new", "existing", "resolved"}:
+            result[state] += 1
+    return result
+
+
+def _summary_markdown(summary: dict[str, int]) -> list[str]:
+    score = f"{summary['score']}/100" if summary["score"] >= 0 else "indisponível"
+    return [
+        "## Resumo executivo", "",
+        f"- **Security Score:** `{score}`",
+        f"- **Findings totais:** `{summary['total']}` (novos: `{summary['new']}`, existentes: `{summary['existing']}`, resolvidos: `{summary['resolved']}`)",
+        f"- **Severidades:** CRITICAL `{summary['critical']}` · HIGH `{summary['high']}` · MEDIUM `{summary['medium']}` · LOW `{summary['low']}` · INFO `{summary['info']}`",
+        "- **Interpretação:** findings são sinais para revisão; a ausência deles não garante ausência de vulnerabilidades.", "",
+    ]
+
+
 def _section_findings(title: str, findings: Iterable[object]) -> list[str]:
     findings = list(findings)
     lines = [f"## {title}", ""]
@@ -118,6 +151,7 @@ def render_report(database: Database, project_path: Path | None = None, now: dat
         f"**{scan.score}/100**" if scan else "Nenhum scan de sistema disponível.",
         "",
     ]
+    lines.extend(_summary_markdown(_summary(database, project_path)))
     lines.extend(_section_findings("Findings do sistema", scan.findings if scan else []))
     if code_scan:
         lines.extend([
@@ -163,6 +197,7 @@ def render_consolidated_report(database: Database, now: datetime | None = None) 
         "- Modo: `read-only / local`",
         "",
     ]
+    lines.extend(_summary_markdown(_summary(database)))
     system_scan = database.latest_scan()
     lines.extend([
         "## Security Score da maquina",
@@ -210,6 +245,25 @@ def generate_markdown_report(
     return path
 
 
+def _html_dashboard(report: str, summary: dict[str, int], generated: datetime) -> str:
+    """Build a standalone responsive report with an executive dashboard."""
+    score = f"{summary['score']}/100" if summary["score"] >= 0 else "N/D"
+    cards = "".join([
+        f'<div class="card score"><span>⚕ ATLAS · Security Score</span><strong>{escape(score)}</strong></div>',
+        f'<div class="card"><span>Findings</span><strong>{summary["total"]}</strong></div>',
+        f'<div class="card high"><span>High / Critical</span><strong>{summary["high"] + summary["critical"]}</strong></div>',
+        f'<div class="card"><span>New / Resolved</span><strong>{summary["new"]} / {summary["resolved"]}</strong></div>',
+    ])
+    rows = "".join(
+        f'<tr><th>{label}</th><td>{summary[key]}</td><td><div class="bar"><i class="{key}" style="width:{min(100, summary[key] * 10)}%"></i></div></td></tr>'
+        for key, label in (("critical", "CRITICAL"), ("high", "HIGH"), ("medium", "MEDIUM"), ("low", "LOW"), ("info", "INFO"))
+    )
+    return f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>ATLAS Security Report</title><style>
+:root {{ color-scheme: dark; }} * {{ box-sizing:border-box; }} body {{ margin:0; background:#050b12; color:#dce8f2; font:14px/1.55 Consolas,ui-monospace,monospace; }} main {{ max-width:1200px; margin:24px auto; padding:24px; border:1px solid #294d69; background:#08121c; }} .header {{ display:flex; justify-content:space-between; border-bottom:1px solid #294d69; padding-bottom:16px; }} .mark,h1,h2 {{ color:#70c7ff; }} .mark {{ font-size:18px; }} .meta {{ color:#8aa3b8; text-align:right; }} h1 {{ letter-spacing:.16em; font-size:25px; }} h2 {{ font-size:16px; }} .cards {{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }} .card {{ border:1px solid #294d69; padding:14px; background:#0b1925; }} .card span {{ display:block; color:#8aa3b8; font-size:12px; }} .card strong {{ display:block; font-size:24px; margin-top:4px; }} .card.score strong {{ color:#70c7ff; }} .card.high strong {{ color:#ff9370; }} section {{ border-top:1px solid #294d69; margin-top:22px; padding-top:12px; }} table {{ width:100%; border-collapse:collapse; }} th,td {{ padding:8px; text-align:left; border-bottom:1px solid #1b3448; }} th {{ color:#9fc5df; }} .bar {{ height:8px; background:#122331; max-width:300px; }} .bar i {{ display:block; height:100%; }} .critical {{ background:#ff4d5e; }} .high {{ background:#ff8a55; }} .medium {{ background:#e4bd48; }} .low {{ background:#52a9ed; }} .info {{ background:#9aa9b8; }} details {{ margin-top:18px; }} summary {{ cursor:pointer; color:#8fc7ed; padding:10px 0; }} pre {{ white-space:pre-wrap; word-break:break-word; background:#050b12; border:1px solid #1b3448; padding:18px; overflow:auto; }} footer {{ color:#8aa3b8; margin-top:22px; font-size:12px; }} @media(max-width:760px) {{ main {{ margin:0; border:0; }} .cards {{ grid-template-columns:repeat(2,1fr); }} .header {{ display:block; }} .meta {{ text-align:left; margin-top:8px; }}}} @media print {{ body,main {{ background:#fff; color:#111; }} main {{ border:0; }} pre {{ color:#111; background:#fff; }}}}
+</style></head><body><main><header class="header"><div class="mark">ATLAS / SECURITY REPORT</div><div class="meta">Gerado em {escape(_date(generated))}<br>Modo local · read-only</div></header><h1>VISÃO GERAL</h1><div class="cards">{cards}</div><section><h2>FINDINGS POR SEVERIDADE</h2><table><thead><tr><th>Severidade</th><th>Total</th><th>Distribuição</th></tr></thead><tbody>{rows}</tbody></table></section><details open><summary>Relatório detalhado (Markdown)</summary><pre>{escape(report)}</pre></details><footer>Gerado localmente pelo ATLAS. A ausência de findings não garante ausência de vulnerabilidades.</footer></main></body></html>"""
+
+
 def generate_html_report(
     database: Database,
     project_path: Path | None = None,
@@ -233,5 +287,6 @@ font: 15px/1.55 Consolas, monospace; }} main {{ max-width: 1100px; margin: 32px 
 border: 1px solid #294d69; background: #08121c; }} h1 {{ color: #8fc7ed; letter-spacing: .18em; }}
 pre {{ white-space: pre-wrap; word-break: break-word; }} .mark {{ color: #6f9fc4; font-size: 28px; }}
 </style></head><body><main><div class="mark">⚕ ATLAS</div><pre>{report}</pre></main></body></html>"""
+    document = _html_dashboard(plain_report, _summary(database, project_path), generated)
     path.write_text(document, encoding="utf-8")
     return path

@@ -49,6 +49,9 @@ def test_html_report_is_standalone(tmp_path):
     assert "<!doctype html>" in content
     assert "⚕ ATLAS" in content
     assert "ATLAS Security Report" in content
+    assert "FINDINGS POR SEVERIDADE" in content
+    assert "cards" in content and "Relat" in content
+    assert "@media print" in content
 
 
 def test_consolidated_report_lists_projects_and_file_changes(tmp_path, monkeypatch):
