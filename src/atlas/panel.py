@@ -18,7 +18,7 @@ from atlas.database import Database
 from atlas.models import CodeScan
 from atlas.privacy import sanitize_text
 from atlas.report import generate_markdown_report
-from atlas.security import redact
+from atlas.security import redact, score_breakdown
 from atlas.terminal_art import AtlasPortrait, AtlasWordmark
 
 
@@ -185,10 +185,21 @@ class AtlasPanel(App):
             severity.append("━" * filled, style=color)
             severity.append("─" * (bar_width - filled) + "\n", style="#263b4a")
         self.query_one("#severity", Static).update(severity)
+        system_scan = self.database.latest_scan()
+        domains = score_breakdown(system_scan.findings) if system_scan else None
+        score = f"{system_scan.score}/100" if system_scan else "N/D"
+        elapsed = ""
+        if self.watchdog.state.status == "SCANNING" and self.watchdog.state.scan_started_at:
+            seconds = max(0, int((datetime.now(UTC) - self.watchdog.state.scan_started_at).total_seconds()))
+            elapsed = f" · {self.watchdog.state.phase} · {seconds}s"
+        domain_line = (
+            f"Cred {domains['credentials']} · Rede {domains['network']} · Host {domains['host']}"
+            if domains else "Execute Security Scan para medir o host."
+        )
         self.query_one("#overview", Static).update(
-            f"Projeto: {self.project.name}\n\n"
+            f"Projeto: {self.project.name}\nSecurity Score: {score}\n{domain_line}\n\n"
             f"Arquivos no último scan: {current_scan.files_analyzed if current_scan else 0}\n"
-            f"Findings ativos: {len(findings)}\n\nWatch: {self.watchdog.state.status}\n"
+            f"Findings ativos: {len(findings)}\nWatch: {self.watchdog.state.status}{elapsed}\n"
             f"Revisão IA: {'ATIVA' if self.watchdog.ai_enabled else 'DESLIGADA'}\n"
             + (f"Último scan: {current_scan.started_at.astimezone():%d/%m %H:%M}" if current_scan else
                "Sem scan registrado neste projeto."))

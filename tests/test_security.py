@@ -2,7 +2,7 @@ from pathlib import Path
 
 from atlas.database import Database
 from atlas.models import Severity
-from atlas.security import SecurityScanner, finding, redact, score_findings
+from atlas.security import SecurityScanner, finding, redact, score_breakdown, score_findings
 
 
 def test_redact_removes_common_secrets():
@@ -58,3 +58,25 @@ def test_default_secret_scope_does_not_sweep_watch_paths(tmp_path: Path, monkeyp
     scanner = SecurityScanner(Database(tmp_path / "atlas.db"))
     scanner.settings.watch_paths = [str(tmp_path / "other-project")]
     assert scanner._default_secret_roots() == [tmp_path.resolve()]
+
+
+def test_secret_scanner_ignores_placeholders_and_test_fixtures(tmp_path: Path):
+    (tmp_path / "config.py").write_text("API_KEY = 'your_api_key'\nTOKEN = 'placeholder'\n", encoding="utf-8")
+    fixture = tmp_path / "tests"
+    fixture.mkdir()
+    (fixture / ".env").write_text("API_TOKEN=definitely-not-a-real-test-token-value\n", encoding="utf-8")
+    scanner = SecurityScanner(Database(tmp_path / "atlas.db"))
+    assert scanner._secrets([tmp_path]) == []
+
+
+def test_score_breakdown_separates_domains_and_caps_repetition():
+    repeated = [
+        finding("open-port", "Listener", Severity.MEDIUM, str(index), "risk", f"port:{index}", "fix")
+        for index in range(20)
+    ]
+    credential = finding("exposed-secret", "Secret", Severity.HIGH, "hidden", "risk", "config.py", "fix")
+    breakdown = score_breakdown([*repeated, credential])
+    assert breakdown["network"] == 80
+    assert breakdown["credentials"] == 85
+    assert breakdown["overall"] == 75
+    assert breakdown["host"] == 100

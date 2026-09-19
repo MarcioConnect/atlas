@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "atlas-security-agent"
-version = "0.1.5"
+version = "0.1.6"
 description = "ATLAS - agente defensivo de administracao e seguranca no terminal"
 readme = "README.md"
 requires-python = ">=3.11"

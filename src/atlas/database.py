@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import timedelta
 from pathlib import Path
 
 from sqlalchemy import create_engine, desc, select, update
@@ -81,6 +82,18 @@ class Database:
 
     def begin_code_scan(self, project_path: str, trigger_file: str | None = None) -> CodeScan:
         with self.session() as db:
+            # Recover scans abandoned by a killed terminal/process so the UI never
+            # remains permanently in SCANNING.
+            cutoff = utcnow() - timedelta(minutes=15)
+            db.execute(
+                update(CodeScan)
+                .where(
+                    CodeScan.project_path == project_path,
+                    CodeScan.status == "SCANNING",
+                    CodeScan.started_at < cutoff,
+                )
+                .values(status="ERROR", completed_at=utcnow(), scanners="[]")
+            )
             scan = CodeScan(project_path=project_path, trigger_file=trigger_file, status="SCANNING")
             db.add(scan)
             db.commit()
@@ -106,6 +119,16 @@ class Database:
             return db.scalars(
                 select(CodeScan).where(CodeScan.project_path == project_path).order_by(desc(CodeScan.id)).limit(1)
             ).first()
+
+    def accept_code_baseline(self, project_path: str) -> None:
+        """Treat the first measured state as known without hiding future regressions."""
+        with self.session() as db:
+            db.execute(
+                update(CodeFinding)
+                .where(CodeFinding.project_path == project_path, CodeFinding.state == "NEW")
+                .values(state="EXISTING")
+            )
+            db.commit()
 
     def code_projects(self) -> list[str]:
         """Return every project that has produced at least one Watchdog scan."""

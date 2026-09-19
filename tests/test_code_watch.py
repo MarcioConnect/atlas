@@ -180,3 +180,15 @@ def test_oversized_file_is_not_falsely_marked_resolved(tmp_path, monkeypatch):
     target.write_text('eval(user_input)\n#' + 'x' * 2_000_000)
     result = watcher.scan_now([target])
     assert not any(f.rule_id == 'python-eval' for f in result['RESOLVED'])
+
+
+def test_initial_baseline_does_not_report_preexisting_findings_as_new(tmp_path: Path):
+    project = tmp_path / "baseline"
+    project.mkdir()
+    (project / "app.py").write_text("pass", encoding="utf-8")
+    SequenceScanner.batches = [[issue(project)]]
+    watcher = CodeWatchdog(project, Database(tmp_path / "baseline.sqlite"), scanner_factory=SequenceScanner)
+    result = watcher.scan_now(None, baseline=True)
+    assert result["NEW"] == []
+    assert len(result["EXISTING"]) == 1
+    assert watcher.database.code_findings(str(project), "NEW") == []

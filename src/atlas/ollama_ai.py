@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import threading
@@ -37,8 +38,13 @@ def ensure_local_service() -> bool:
         if running():
             return True
         base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local")) / "Programs"
-        executable = next((base / folder / "ollama.exe" for folder in ("Ollama", "OllamaCPU")
-                           if (base / folder / "ollama.exe").is_file()), None)
+        candidates = [
+            Path(found) if (found := shutil.which("ollama")) else None,
+            base / "Ollama" / "ollama.exe",
+            base / "OllamaCPU" / "ollama.exe",
+            Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Ollama" / "ollama.exe",
+        ]
+        executable = next((candidate for candidate in candidates if candidate and candidate.is_file()), None)
         if executable is None:
             return False
         try:
@@ -98,7 +104,9 @@ class OllamaReviewer:
                 return AIReviewStatus(False, f"Model unavailable: {self.model}. Run: ollama pull {self.model}")
             return AIReviewStatus(True, f"Local model: {self.model}")
         except (OSError, ValueError, TypeError, urllib.error.URLError, json.JSONDecodeError) as exc:
-            return AIReviewStatus(False, f"Ollama unavailable: {type(exc).__name__}")
+            installed = bool(shutil.which("ollama"))
+            hint = "service stopped" if installed else "not installed"
+            return AIReviewStatus(False, f"Ollama unavailable ({hint}): {type(exc).__name__}")
 
     def _snippet(self, finding: Any) -> str:
         from atlas.privacy import sanitize_source

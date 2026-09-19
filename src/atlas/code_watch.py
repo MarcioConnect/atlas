@@ -36,6 +36,8 @@ class WatchState:
     files_analyzed: int = 0
     changes: int = 0
     last_scan_at: datetime | None = None
+    scan_started_at: datetime | None = None
+    phase: str = "IDLE"
     new: list[CodeFinding] = field(default_factory=list)
     existing: list[CodeFinding] = field(default_factory=list)
     resolved: list[CodeFinding] = field(default_factory=list)
@@ -112,7 +114,13 @@ class CodeWatchdog:
         self._worker.start()
         self._notify()
         if initial_scan:
-            threading.Thread(target=self.scan_now, args=(None,), name="atlas-initial-scan", daemon=True).start()
+            threading.Thread(
+                target=self.scan_now,
+                args=(None,),
+                kwargs={"baseline": True},
+                name="atlas-initial-scan",
+                daemon=True,
+            ).start()
 
     def stop(self) -> None:
         self._stop.set()
@@ -183,7 +191,9 @@ class CodeWatchdog:
                 # removed file can be resolved with trustworthy coverage.
                 self.scan_now(None if any(not path.exists() for path in changed) else changed)
 
-    def scan_now(self, changed: list[Path] | None = None) -> dict[str, list[CodeFinding]]:
+    def scan_now(
+        self, changed: list[Path] | None = None, *, baseline: bool = False,
+    ) -> dict[str, list[CodeFinding]]:
         if not self._scan_lock.acquire(blocking=False):
             for path in changed or []:
                 self.queue(path)
@@ -193,6 +203,8 @@ class CodeWatchdog:
             trigger = str(changed[0]) if changed else None
             scan = self.database.begin_code_scan(str(self.project), trigger)
             self.state.status = "SCANNING"
+            self.state.phase = "LOCAL_SCANNERS"
+            self.state.scan_started_at = datetime.now(UTC)
             self.state.error = ""
             self._notify()
             changed_lines = self._changed_line_map(changed)
@@ -203,12 +215,20 @@ class CodeWatchdog:
                 # Keep compatibility with custom scanner factories using the v0.1 API.
                 local_result = scanner.scan(changed)
             if self.ai_enabled:
+                self.state.phase = "OLLAMA_REVIEW"
+                self._notify()
                 self._review_new_with_ai(local_result)
+            self.state.phase = "RECONCILING"
+            self._notify()
             if changed is None:
                 self._seed_snapshots()
             reconciled = self.database.reconcile_code_findings(
                 str(self.project), scan.id, [item.record() for item in local_result.findings], local_result.coverage
             )
+            if baseline:
+                self.database.accept_code_baseline(str(self.project))
+                reconciled["EXISTING"].extend(reconciled["NEW"])
+                reconciled["NEW"] = []
             self.state.new = reconciled["NEW"]
             self.state.existing = self.database.code_findings(str(self.project), "EXISTING")
             self.state.resolved = reconciled["RESOLVED"]
@@ -222,6 +242,7 @@ class CodeWatchdog:
             current = self.database.code_findings(str(self.project))
             actionable = [item for item in current if item.state != "RESOLVED"]
             self.state.status = "FINDINGS" if actionable else "SAFE"
+            self.state.phase = "IDLE"
             scanner_json = json.dumps(
                 [{"name": item.name, "available": item.available, "install": item.install} for item in local_result.availability],
                 ensure_ascii=True,
@@ -233,6 +254,7 @@ class CodeWatchdog:
             return reconciled
         except Exception as exc:
             self.state.status = "ERROR"
+            self.state.phase = "IDLE"
             self.state.error = type(exc).__name__
             if scan is not None:
                 try:

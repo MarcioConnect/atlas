@@ -107,3 +107,12 @@ def test_commented_docker_config_does_not_imply_privileged_runtime(tmp_path, mon
     finding = next(f for f in LocalCodeScanners(tmp_path).scan([target]).findings if f.rule_id == 'docker-privileged')
     assert finding.severity == 'HIGH'
     assert 'not verified' in finding.evidence
+
+
+def test_fingerprint_survives_unrelated_line_insertion(tmp_path: Path):
+    target = tmp_path / "app.py"
+    target.write_text("result = eval(user_input)\n", encoding="utf-8")
+    first = NormalizedFinding("HIGH", "ATLAS Native", "python-eval", str(target), 1, "Issue", "safe", "Fix").finalize(tmp_path)
+    target.write_text("# header\nresult = eval(user_input)\n", encoding="utf-8")
+    second = NormalizedFinding("HIGH", "ATLAS Native", "python-eval", str(target), 2, "Issue", "safe", "Fix").finalize(tmp_path)
+    assert first.fingerprint == second.fingerprint

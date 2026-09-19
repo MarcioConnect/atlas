@@ -2,6 +2,15 @@
 
 All notable changes to ATLAS are documented in this file.
 
+## [0.1.6] - 2026-09-19
+
+- Reduce secret and local-port false positives using contextual validation, placeholders and test-fixture exclusions.
+- Add line-shift-resistant finding fingerprints and a silent initial Watchdog baseline.
+- Recover abandoned scans and expose live scan phases in the integrated panel.
+- Add Security Score domains with repetition caps and explain them in CLI, Markdown and HTML reports.
+- Improve scanner coverage details and Ollama installation/service diagnostics.
+- Expand regression coverage for fingerprints, baseline, score categories and secret fixtures.
+
 ## [0.1.5] - 2026-09-18
 
 - Add executive summaries and severity/state metrics to Markdown reports.

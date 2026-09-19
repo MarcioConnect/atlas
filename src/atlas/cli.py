@@ -13,7 +13,7 @@ from atlas import __version__
 from atlas.config import Settings
 from atlas.database import Database
 from atlas.models import Severity
-from atlas.security import SecurityScanner
+from atlas.security import SecurityScanner, score_breakdown
 from atlas.sessions import SessionManager
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -34,8 +34,14 @@ def _monitor_roots(paths: list[Path] | None) -> list[Path]:
     if paths:
         roots = [path.expanduser().resolve() for path in paths]
     else:
-        configured = Settings.load().watch_paths
-        roots = [Path(path).expanduser().resolve() for path in configured] if configured else [Path.home().resolve()]
+        from atlas.multi_watch import configured_projects
+
+        roots = configured_projects()
+        if not roots:
+            current = Path.cwd().resolve()
+            if current == Path.home().resolve():
+                raise typer.BadParameter("Nenhum projeto detectado. Use --watch C:\\Projeto ou atlas config --add-path C:\\Projeto.")
+            roots = [current]
     missing = [root for root in roots if not root.exists()]
     if missing:
         raise typer.BadParameter(f"Caminho inexistente: {missing[0]}")
@@ -334,6 +340,7 @@ def security(
             "hostname": scan.hostname,
             "created_at": scan.created_at.isoformat(),
             "score": scan.score,
+            "score_by_domain": score_breakdown(scan.findings),
             "findings": [
                 {key: getattr(item, key) for key in ("check_id", "title", "severity", "evidence", "risk", "component", "recommendation")}
                 for item in ordered
@@ -341,6 +348,11 @@ def security(
         }
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
+        domains = score_breakdown(scan.findings)
+        console.print(
+            f"[bold]Score por domínio:[/] credenciais={domains['credentials']} · rede={domains['network']} · "
+            f"containers={domains['containers']} · host={domains['host']} · código={domains['code']}"
+        )
         table = Table(title=f"ATLAS Security Scan · Score {scan.score}/100", show_lines=True)
         table.add_column("Severidade", style="bold")
         table.add_column("Finding")

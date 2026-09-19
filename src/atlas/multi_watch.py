@@ -64,6 +64,67 @@ class MultiProjectWatchdog:
             watcher.scan_now(None)
 
 
+PROJECT_MARKERS = {
+    ".git", "pyproject.toml", "package.json", "requirements.txt", "Cargo.toml",
+    "go.mod", "pom.xml", "composer.json", "Dockerfile", "src",
+}
+PROFILE_BUCKETS = {"desktop", "documents", "downloads", "onedrive", "appdata", "ideaprojects"}
+
+
+def _project_like(path: Path) -> bool:
+    try:
+        return any((path / marker).exists() for marker in PROJECT_MARKERS)
+    except OSError:
+        return False
+
+
+def discover_user_projects(base: Path | None = None) -> list[Path]:
+    """Discover only shallow project roots, never sweep the whole user profile."""
+    root = (base or Path.home()).expanduser().resolve()
+    found: dict[str, Path] = {}
+    try:
+        children = [item for item in root.iterdir() if item.is_dir() and not item.name.startswith(".")]
+    except OSError:
+        return []
+    for child in children[:200]:
+        if _project_like(child):
+            found[str(child.resolve()).casefold()] = child.resolve()
+        if child.name.casefold() in PROFILE_BUCKETS:
+            try:
+                nested = [item for item in child.iterdir() if item.is_dir() and not item.name.startswith(".")]
+            except OSError:
+                continue
+            for item in nested[:200]:
+                if _project_like(item):
+                    found[str(item.resolve()).casefold()] = item.resolve()
+    return sorted(found.values(), key=lambda item: str(item).casefold())
+
+
 def configured_projects() -> list[Path]:
-    """Read configured roots and keep only existing directories."""
-    return [Path(item).expanduser().resolve() for item in Settings.load().watch_paths if Path(item).expanduser().is_dir()]
+    """Return explicit project roots while pruning profile buckets and overlap."""
+    candidates: dict[str, Path] = {}
+    for item in Settings.load().watch_paths:
+        path = Path(item).expanduser()
+        if path.is_dir():
+            resolved = path.resolve()
+            candidates[str(resolved).casefold()] = resolved
+    home = Path.home().resolve()
+    broad_roots = [
+        path for path in candidates.values()
+        if path == home or (path.parent == home and path.name.casefold() in PROFILE_BUCKETS)
+    ]
+    for root in broad_roots:
+        for discovered in discover_user_projects(root):
+            candidates.setdefault(str(discovered).casefold(), discovered)
+    if not candidates:
+        for discovered in discover_user_projects(home):
+            candidates[str(discovered).casefold()] = discovered
+    values = list(candidates.values())
+    selected: list[Path] = []
+    for path in values:
+        broad_profile = path == home or (path.parent == home and path.name.casefold() in PROFILE_BUCKETS)
+        contains_configured_child = any(path != other and path in other.parents for other in values)
+        if broad_profile or (contains_configured_child and not _project_like(path)):
+            continue
+        selected.append(path)
+    return sorted(selected, key=lambda item: str(item).casefold())

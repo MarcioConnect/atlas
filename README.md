@@ -1,4 +1,4 @@
-# ATLAS v0.1.5
+# ATLAS v0.1.6
 
 ## Painel integrado
 
@@ -47,14 +47,13 @@ O Watch reanalisa por inteiro os arquivos alterados, incluindo os achados que
 continuam presentes. Isso evita marcar um risco como resolvido quando apenas
 outra linha do mesmo arquivo mudou. A seleção dos arquivos continua incremental.
 
-## Novidades da v0.1.2
+## Precisão e estabilidade da v0.1.6
 
-- Validacao de sintaxe Python, JSON e TOML, sem executar o codigo analisado.
-- Ruff opcional para diagnosticos Python: instale com `python -m pip install ruff`.
-- Diagnosticos `[BUG]` e `[LINT]` nao significam invasao ou comprometimento.
-- Exclusao antecipada de dependencias, ambientes virtuais e artefatos de testes
-  durante a descoberta de arquivos.
-- Recuperacao do Watch apos falhas temporarias do SQLite ou fechamento da TUI.
+- Baseline inicial silenciosa: findings preexistentes começam como EXISTING.
+- Fingerprints usam contexto sanitizado e resistem a inserções em outras linhas.
+- Secrets exigem valor plausível; placeholders, fixtures e dependências são ignorados.
+- Security Score separado por credenciais, rede, containers, host e código.
+- Scans abandonados são recuperados, e a fase atual aparece no painel.
 
 Para testar esta copia local:
 
@@ -64,8 +63,8 @@ atlas watch "C:\Meu Projeto"
 ```
 
 O Watch nao detecta todos os erros possiveis. As ferramentas opcionais ampliam
-a cobertura; resultados continuam exigindo revisao humana. Use o executavel da
-v0.1.2 para ter estas alteracoes.
+a cobertura; resultados continuam exigindo revisão humana. A v0.1.6 está em
+validação local; a página de Releases contém a última versão pública.
 
 ATLAS is a defensive Security Watchdog for Windows that runs entirely in the
 terminal. It watches a source tree, scans changed code with local tools, and
@@ -81,7 +80,7 @@ watch mode does not call an LLM and does not consume AI tokens.
 
 Quer apenas usar? Baixe o executável pronto na página da release:
 
-**[Baixar ATLAS-Security-Agent.exe — v0.1.3](https://github.com/MarcioConnect/atlas/releases/download/v0.1.3/ATLAS-Security-Agent.exe)**
+**[Baixar ATLAS-Security-Agent.exe — v0.1.5](https://github.com/MarcioConnect/atlas/releases/download/v0.1.5/ATLAS-Security-Agent.exe)**
 
 Depois, no PowerShell:
 
@@ -112,7 +111,7 @@ CODE CHANGES
 
 Validation completed on Windows:
 
-- 47 automated tests passing;
+- 110 automated tests passing;
 - real filesystem event detection verified;
 - repeated events coalesced by debounce;
 - `NEW -> EXISTING -> RESOLVED` lifecycle verified end to end;
@@ -356,7 +355,9 @@ atlas config --risk RULE-ID=HIGH
 ## Finding lifecycle
 
 A stable SHA-256 fingerprint uses scanner, rule, normalized project-relative
-file path, and location. On every scan:
+file path, and a sanitized source-context identity. It survives unrelated line
+insertions without storing source or secret values. The initial Watch baseline
+is accepted as EXISTING, so only later regressions become NEW. On every scan:
 
 - `NEW`: not active in the previous measured state, or it reappeared;
 - `EXISTING`: still present;

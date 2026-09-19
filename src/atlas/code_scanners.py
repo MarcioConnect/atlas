@@ -15,7 +15,7 @@ from typing import Any
 from atlas.config import Settings
 from atlas.file_scope import ignored_name, scoped_files
 from atlas.models import Severity
-from atlas.security import SKIP_DIRS, redact
+from atlas.security import SKIP_DIRS, is_secret_candidate, redact
 from atlas.security_guard import LEVELS, assess_untrusted
 
 IGNORED_DIRS = {
@@ -61,7 +61,9 @@ class NormalizedFinding:
         self.description = redact(self.description)
         self.evidence = redact(self.evidence)
         self.recommendation = redact(self.recommendation)
-        identity = f"{self.scanner.casefold()}|{self.rule_id.casefold()}|{relative.casefold()}|{self.line or 0}"
+        context = _finding_context(absolute, self.line)
+        location = context or str(self.line or 0)
+        identity = f"{self.scanner.casefold()}|{self.rule_id.casefold()}|{relative.casefold()}|{location}"
         self.fingerprint = hashlib.sha256(identity.encode("utf-8", "replace")).hexdigest()
         return self
 
@@ -77,6 +79,23 @@ class NormalizedFinding:
             "evidence": self.evidence,
             "recommendation": self.recommendation,
         }
+
+
+def _finding_context(path: Path, line: int | None) -> str:
+    """Build a secret-safe identity that survives unrelated line insertions."""
+    if not line or line < 1:
+        return ""
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    if line > len(lines):
+        return ""
+    value = lines[line - 1].strip().casefold()
+    value = re.sub(r"(['\"]).*?\1", "[literal]", value)
+    value = re.sub(r"\b\d+(?:\.\d+)?\b", "[number]", value)
+    value = re.sub(r"\s+", " ", value)
+    return hashlib.sha256(value.encode("utf-8", "replace")).hexdigest()[:20] if value else ""
 
 
 @dataclass(slots=True)
@@ -332,12 +351,17 @@ class LocalCodeScanners:
             allowed_lines = None
             if changed_lines is not None:
                 allowed_lines = changed_lines.get(str(path).casefold())
+            is_test_file = any(part.casefold() in {"test", "tests", "fixtures"} for part in path.relative_to(self.project).parts)
             for line_number, line in enumerate(content.splitlines(), 1):
                 if allowed_lines is not None and line_number not in allowed_lines:
                     continue
                 secret_match = secret_pattern.search(line)
                 placeholder = re.search(r'''(?i)["'](?:changeme|change-me|example|dummy|placeholder|your[_-][\w-]+|\[REDACTED\])["']''', line)
-                if secret_match and not placeholder and not line.lstrip().startswith(('#', '//')) and (literal_secret_lines is None or line_number in literal_secret_lines):
+                secret_value = secret_match.group(0).split("=", 1)[-1].split(":", 1)[-1] if secret_match else ""
+                if (secret_match and not placeholder and not is_test_file
+                        and is_secret_candidate(secret_value)
+                        and not line.lstrip().startswith(('#', '//'))
+                        and (literal_secret_lines is None or line_number in literal_secret_lines)):
                     result.findings.append(NormalizedFinding(
                         Severity.HIGH.value, scanner, "hardcoded-secret", str(path), line_number,
                         "Possible hardcoded credential", "Sensitive value detected; value [REDACTED]",

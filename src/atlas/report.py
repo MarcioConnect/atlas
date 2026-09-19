@@ -12,7 +12,7 @@ from pathlib import Path
 
 from atlas.config import Settings
 from atlas.database import Database
-from atlas.security import redact
+from atlas.security import redact, score_breakdown
 
 
 def downloads_dir() -> Path:
@@ -39,9 +39,12 @@ def _summary(database: Database, project_path: Path | None = None) -> dict[str, 
         latest = database.latest_code_scan(str(project))
         if latest:
             findings.extend(database.code_findings(str(project)))
+    breakdown = score_breakdown(system_scan.findings) if system_scan else {
+        "credentials": 100, "network": 100, "containers": 100, "host": 100, "code": 100, "overall": -1,
+    }
     result = {"total": len(findings), "critical": 0, "high": 0, "medium": 0,
               "low": 0, "info": 0, "new": 0, "existing": 0, "resolved": 0,
-              "score": int(system_scan.score) if system_scan else -1}
+              "score": int(system_scan.score) if system_scan else -1, **breakdown}
     for finding in findings:
         severity = str(getattr(finding, "severity", "INFO")).casefold()
         state = str(getattr(finding, "state", "")).casefold()
@@ -59,7 +62,8 @@ def _summary_markdown(summary: dict[str, int]) -> list[str]:
         f"- **Security Score:** `{score}`",
         f"- **Findings totais:** `{summary['total']}` (novos: `{summary['new']}`, existentes: `{summary['existing']}`, resolvidos: `{summary['resolved']}`)",
         f"- **Severidades:** CRITICAL `{summary['critical']}` · HIGH `{summary['high']}` · MEDIUM `{summary['medium']}` · LOW `{summary['low']}` · INFO `{summary['info']}`",
-        "- **Interpretação:** findings são sinais para revisão; a ausência deles não garante ausência de vulnerabilidades.", "",
+        f"- **Score por domínio:** credenciais {summary['credentials']} · rede {summary['network']} · containers {summary['containers']} · host {summary['host']} · código {summary['code']}",
+        "- **Interpretação:** o score considera causas únicas por domínio e limita repetições; findings são sinais para revisão, não prova automática de comprometimento.", "",
     ]
 
 
@@ -172,8 +176,16 @@ def render_report(database: Database, project_path: Path | None = None, now: dat
             lines.extend(f"- `{_safe(name)}`: {_safe(status)}" for name, status in scanners.items())
             lines.append("")
         elif isinstance(scanners, list) and scanners:
-            lines.append("### Scanners")
-            lines.extend(f"- `{_safe(item)}`" for item in scanners)
+            lines.append("### Cobertura dos scanners")
+            for item in scanners:
+                if isinstance(item, dict):
+                    state = "disponível" if item.get("available") else "indisponível"
+                    line = f"- {_safe(item.get('name', 'scanner'))}: **{state}**"
+                    if not item.get("available") and item.get("install"):
+                        line += f" · Instalação: {_safe(item['install'])}"
+                    lines.append(line)
+                else:
+                    lines.append(f"- {_safe(item)}")
             lines.append("")
         for state in ("NEW", "EXISTING", "RESOLVED"):
             lines.extend(_section_findings(f"Watchdog — {state}", [item for item in code_findings if item.state == state]))

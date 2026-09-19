@@ -53,20 +53,64 @@ SKIP_DIRS = {
     ".vscode", ".idea", "docs", "documentation", "examples", "vendor", "third_party", "generated",
     ".review-", ".diag-",
 }
+_PLACEHOLDER_SECRET = re.compile(
+    r"(?i)^(?:$|none|null|undefined|false|true|changeme|change[-_ ]?me|example|dummy|placeholder|sample|test(?:[-_ ]only)?|your[-_ ]?(?:token|secret|api[-_ ]?key)|<[^>]+>|\[redacted\]|\$\{[^}]+\}|%[^%]+%)$"
+)
+
+
+def is_secret_candidate(value: str) -> bool:
+    candidate = value.strip().strip("'\"").strip()
+    if _PLACEHOLDER_SECRET.fullmatch(candidate):
+        return False
+    if len(candidate) < 12 or re.fullmatch(r"[A-Za-z0-9_./+:-]+", candidate) is None:
+        return False
+    return len(set(candidate)) >= 5 and len(set(candidate)) / len(candidate) >= 0.18
+
+
 TEXT_SUFFIXES = {
     ".txt", ".conf", ".cfg", ".ini", ".env", ".json", ".yaml", ".yml", ".toml", ".xml",
     ".py", ".js", ".ts", ".ps1", ".sh", ".service", ".properties",
 }
 
 
-def score_findings(findings: Iterable[Finding]) -> int:
+SCORE_CATEGORIES = ("credentials", "network", "containers", "host", "code")
+
+
+def finding_category(item: Finding) -> str:
+    check = item.check_id.casefold()
+    if any(value in check for value in ("secret", "credential", "private-key")):
+        return "credentials"
+    if any(value in check for value in ("port", "firewall", "http", "ssh", "web-")):
+        return "network"
+    if check.startswith(("docker", "container")):
+        return "containers"
+    if any(value in check for value in ("permission", "software", "defender", "malware", "coverage")):
+        return "host"
+    return "code"
+
+
+def score_breakdown(findings: Iterable[Finding]) -> dict[str, int]:
+    """Score independent risk domains and cap repeated causes per domain."""
     unique = {(finding.fingerprint, finding.severity): finding for finding in findings}
-    by_severity: dict[Severity, int] = {level: 0 for level in PENALTIES}
+    penalties = {category: {level: 0 for level in PENALTIES} for category in SCORE_CATEGORIES}
+    active: set[str] = set()
     for item in unique.values():
         severity = Severity(item.severity)
-        by_severity[severity] += PENALTIES[severity]
-    penalty = sum(min(value, PENALTY_CAPS[level]) for level, value in by_severity.items())
-    return max(0, 100 - penalty)
+        category = finding_category(item)
+        penalties[category][severity] += PENALTIES[severity]
+        if severity is not Severity.INFO:
+            active.add(category)
+    result: dict[str, int] = {}
+    for category, values in penalties.items():
+        penalty = sum(min(value, PENALTY_CAPS[level]) for level, value in values.items())
+        result[category] = max(0, 100 - penalty)
+    lowest = min((result[category] for category in active), default=100)
+    result["overall"] = max(0, lowest - max(0, len(active) - 1) * 5)
+    return result
+
+
+def score_findings(findings: Iterable[Finding]) -> int:
+    return score_breakdown(findings)["overall"]
 
 
 def redact(value: str) -> str:
@@ -214,6 +258,11 @@ class SecurityScanner:
         for item in listeners:
             # Compare observed listeners; this does not bind a socket.
             wildcard = item["host"] in {"0.0.0.0", "::"}  # nosec B104
+            # Do not flood the report with ephemeral localhost/RPC listeners.
+            # Keep privileged and well-known service ports because they can be
+            # actionable; wildcard listeners remain visible for review.
+            if not wildcard and item["port"] >= 1024 and item["port"] not in critical | high | medium:
+                continue
             severity = Severity.INFO
             title = "Porta local em escuta"
             identity = (item["port"], item["process"])
@@ -362,6 +411,8 @@ class SecurityScanner:
                     )
                     if not path.is_file() or ignored:
                         continue
+                    if any(part.casefold() in {"test", "tests", "fixtures", "__snapshots__"} for part in relative_parts):
+                        continue
                     if atlas_data in resolved.parents or resolved.stat().st_size > self.settings.secret_scan_max_bytes:
                         continue
                     if path.suffix.lower() not in TEXT_SUFFIXES and not path.name.lower().startswith(".env"):
@@ -373,6 +424,10 @@ class SecurityScanner:
                 for kind, pattern in SENSITIVE_PATTERNS:
                     match = pattern.search(content)
                     if match:
+                        if kind == "credencial em configuracao":
+                            raw = match.group(0).split("=", 1)[-1].split(":", 1)[-1]
+                            if not is_secret_candidate(raw):
+                                continue
                         line = content.count("\n", 0, match.start()) + 1
                         results.append(finding("exposed-secret", "Possivel credencial em texto claro", Severity.HIGH, f"Padrao {kind} detectado em {path}:{line}; valor omitido", "Credenciais em arquivos podem ser copiadas ou publicadas acidentalmente.", str(path), "Revogue se necessario, mova para armazenamento seguro e restrinja permissoes."))
                         break
