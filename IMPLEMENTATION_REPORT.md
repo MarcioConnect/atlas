@@ -1,9 +1,9 @@
 # ATLAS implementation report
 
-Status: v0.1.8 source candidate is pushed to `main`; the public v0.1.7 release
-contains the previous Windows executable and SHA-256 sidecar. The v0.1.8 release
-is not public yet. Its Windows build and checksum must pass before publication;
-no PyPI package is being uploaded.
+Status: ATLAS v0.1.8 is published at
+https://github.com/MarcioConnect/atlas/releases/tag/v0.1.8 with the Windows
+executable and SHA-256 sidecar. No PyPI package was uploaded. The executable is
+not Authenticode-signed.
 
 The v0.1.8 candidate adds a one-shot `atlas scan` command,
 persists coverage gaps for source files skipped by the 2 MB limit, distinguishes
@@ -56,8 +56,7 @@ project security documentation.
 - `py -m twine check` on both built artifacts — passed.
 - Historical GitHub Actions for `8b149c2`: CI matrix and CodeQL passed, but the
   manually triggered release workflow failed before starting jobs due to an
-  invalid `workflow_dispatch` input schema. The schema fix is included in v0.1.8;
-  the v0.1.8 executable-upload workflow still needs a successful run.
+  invalid `workflow_dispatch` input schema. The schema fix is included in v0.1.8.
 - Regression suite includes temp-directory filesystem watcher/debounce/lifecycle,
   Windows paths with spaces, optional scanner absence, redaction, migration,
   concurrent-start rollback, reporting and security helper tests. Platform
@@ -75,7 +74,10 @@ project security documentation.
 - The new `atlas scan` table/JSON flows, skipped-large-file coverage, additive
   SQLite migration, incremental-scan scope, one-time baseline acceptance, and
   partial-coverage UI state are covered by regression tests. GitHub CI passed
-  on commit `f80db87` across Python 3.11–3.14 and package checks; CodeQL passed.
+  on application commit `f80db87` across Python 3.11–3.14 and package checks;
+  CodeQL passed on `f80db87` and report update `6b5dab9`. The Windows release
+  workflow passed as run `35921058832`; the downloaded executable returned
+  version 0.1.8 and matched its SHA-256 sidecar before publication.
 
 No before/after performance benchmark was recorded. Streaming source context and
 file-size limits reduce memory exposure by design, but no numerical speedup is
