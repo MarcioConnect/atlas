@@ -15,6 +15,7 @@ from watchdog.observers import Observer
 
 from atlas.code_scanners import (
     IGNORED_DIRS,
+    MAX_SOURCE_FILE_BYTES,
     CodeScanResult,
     LocalCodeScanners,
     ScannerAvailability,
@@ -107,11 +108,22 @@ class CodeWatchdog:
         self._stop.clear()
         self.state.status = "WATCHING"
         handler = ProjectEventHandler(self.project, self.queue)
-        self._observer = Observer()
-        self._observer.schedule(handler, str(self.project), recursive=True)
-        self._observer.start()
-        self._worker = threading.Thread(target=self._loop, name="atlas-code-watchdog", daemon=True)
-        self._worker.start()
+        observer = Observer()
+        try:
+            observer.schedule(handler, str(self.project), recursive=True)
+            observer.start()
+            self._observer = observer
+            self._worker = threading.Thread(target=self._loop, name="atlas-code-watchdog", daemon=True)
+            self._worker.start()
+        except Exception as exc:
+            observer.stop()
+            observer.join(timeout=5)
+            self._observer = None
+            self._worker = None
+            self.state.status = "ERROR"
+            self.state.error = type(exc).__name__
+            self._notify()
+            raise
         self._notify()
         if initial_scan:
             threading.Thread(
@@ -132,7 +144,8 @@ class CodeWatchdog:
         worker = self._worker
         if worker and worker is not threading.current_thread():
             worker.join(timeout=5)
-        self.state.status = "STOPPED"
+        if not self._scan_lock.locked():
+            self.state.status = "STOPPED"
         self._notify()
 
     def queue(self, path: Path, event_type: str = "modified") -> None:
@@ -214,10 +227,6 @@ class CodeWatchdog:
             except TypeError:
                 # Keep compatibility with custom scanner factories using the v0.1 API.
                 local_result = scanner.scan(changed)
-            if self.ai_enabled:
-                self.state.phase = "OLLAMA_REVIEW"
-                self._notify()
-                self._review_new_with_ai(local_result)
             self.state.phase = "RECONCILING"
             self._notify()
             if changed is None:
@@ -241,7 +250,7 @@ class CodeWatchdog:
             self.state.last_scan_at = datetime.now(UTC)
             current = self.database.code_findings(str(self.project))
             actionable = [item for item in current if item.state != "RESOLVED"]
-            self.state.status = "FINDINGS" if actionable else "SAFE"
+            self.state.status = "STOPPED" if self._stop.is_set() else ("FINDINGS" if actionable else "SAFE")
             self.state.phase = "IDLE"
             scanner_json = json.dumps(
                 [{"name": item.name, "available": item.available, "install": item.install} for item in local_result.availability],
@@ -272,23 +281,19 @@ class CodeWatchdog:
             self._scan_lock.release()
             self._notify()
 
-    def _review_new_with_ai(self, result: CodeScanResult) -> None:
+    def review_finding_with_ai(self, finding: CodeFinding):
+        """Review one explicitly selected finding; watch scans never transmit automatically."""
+        if not self.ai_enabled:
+            raise RuntimeError("AI review is disabled; start watch with --ai to enable explicit reviews")
         from atlas.ollama_ai import OllamaReviewer
 
         settings = Settings.load()
         model = self.ai_model or settings.ollama_model
         timeout = settings.ollama_timeout_seconds
-        active = {
-            item.fingerprint for item in self.database.code_findings(str(self.project))
-            if item.state != "RESOLVED"
-        }
-        candidates = [item for item in result.findings if item.fingerprint not in active]
+        if finding.project_path != str(self.project) or finding.state == "RESOLVED":
+            raise ValueError("Selected finding is outside this project or already resolved")
         reviewer = OllamaReviewer(self.project, model, timeout)
-        status = reviewer.review(candidates)
-        result.availability.append(ScannerAvailability(
-            "Ollama AI", status.available,
-            f"Install Ollama, then run: ollama pull {model}", status.detail,
-        ))
+        return reviewer.review([finding])
 
     def _changed_line_map(self, changed: list[Path] | None) -> dict[str, set[int]] | None:
         """Return changed line numbers using an in-memory previous snapshot.
@@ -302,6 +307,9 @@ class CodeWatchdog:
         for path in changed:
             key = str(path.resolve()).casefold()
             try:
+                if path.stat().st_size > MAX_SOURCE_FILE_BYTES:
+                    self._snapshots.pop(key, None)
+                    continue
                 current = path.read_text(encoding="utf-8", errors="replace").splitlines()
             except OSError:
                 self._snapshots.pop(key, None)

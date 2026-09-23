@@ -57,3 +57,19 @@ def test_monitor_records_firewall_profile_change(tmp_path: Path, monkeypatch):
     events = database.recent_monitor_events()
     assert events and events[0].kind == "firewall"
     assert events[0].severity == "HIGH"
+
+
+def test_monitor_records_persistence_changes_without_storing_command(tmp_path: Path, monkeypatch):
+    database = Database(tmp_path / "persistence.sqlite")
+    service = MonitorService([tmp_path], database)
+    snapshots = iter([
+        [{"kind": "registry-run", "name": "HKCU Run: Demo", "fingerprint": "a" * 64}],
+        [{"kind": "registry-run", "name": "HKCU Run: Demo", "fingerprint": "b" * 64}],
+    ])
+    monkeypatch.setattr("atlas.threats.persistence_snapshot", lambda: next(snapshots))
+    service._snapshot_persistence(initial=True)
+    service._snapshot_persistence()
+    event = database.recent_monitor_events()[0]
+    assert event.kind == "persistence"
+    assert event.detail == "entrada de inicialização modificada"
+    assert "a" * 64 not in event.detail and "b" * 64 not in event.detail

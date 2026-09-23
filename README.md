@@ -33,9 +33,9 @@ Ignora `.env`, dependências, arquivos privados e binários, e oculta linhas com
 possíveis credenciais. O contexto é limitado a 12 mil caracteres; não representa
 uma varredura completa do computador. O modelo não executa comandos.
 `atlas watch "C:\MeuProjeto" --ai`
-ativa a revisão de até 12 findings novos por análise, com pequenos trechos de código
-sanitizados. No painel, `/ai on` ativa essa revisão nos próximos Scan/Watch e
-`/ai off` a desativa; a preferência fica salva. Pare o Watch antes de alternar.
+habilita revisões explícitas locais. O Watch nunca envia findings automaticamente;
+selecione um finding e pressione `a` para solicitar a revisão. No painel, `/ai on`
+habilita a capacidade, mas a análise ocorre após uma pergunta explícita no chat.
 Ollama e o modelo são instalações separadas do ATLAS.
 
 O chat mantém as últimas interações somente na memória da sessão e do projeto.
@@ -46,6 +46,8 @@ o projeto e um modelo local instalado. Trocar o projeto também limpa o contexto
 O Watch reanalisa por inteiro os arquivos alterados, incluindo os achados que
 continuam presentes. Isso evita marcar um risco como resolvido quando apenas
 outra linha do mesmo arquivo mudou. A seleção dos arquivos continua incremental.
+Findings exibem categoria e confiança estimada. Uma supressão individual requer
+motivo e prazo; ela continua visível no painel com estado `SUPPRESSED`.
 
 ## Precisão e estabilidade da v0.1.6
 
@@ -63,8 +65,8 @@ atlas watch "C:\Meu Projeto"
 ```
 
 O Watch nao detecta todos os erros possiveis. As ferramentas opcionais ampliam
-a cobertura; resultados continuam exigindo revisão humana. A v0.1.6 está em
-validação local; a página de Releases contém a última versão pública.
+a cobertura; resultados continuam exigindo revisão humana. A v0.1.6 está
+publicada; as mudanças desta árvore de trabalho ainda não foram lançadas.
 
 ATLAS is a defensive Security Watchdog for Windows that runs entirely in the
 terminal. It watches a source tree, scans changed code with local tools, and
@@ -80,7 +82,7 @@ watch mode does not call an LLM and does not consume AI tokens.
 
 Quer apenas usar? Baixe o executável pronto na página da release:
 
-**[Baixar ATLAS-Security-Agent.exe — v0.1.5](https://github.com/MarcioConnect/atlas/releases/download/v0.1.5/ATLAS-Security-Agent.exe)**
+**[Baixar ATLAS-Security-Agent.exe — v0.1.6](https://github.com/MarcioConnect/atlas/releases/download/v0.1.6/ATLAS-Security-Agent.exe)**
 
 Depois, no PowerShell:
 
@@ -111,7 +113,7 @@ CODE CHANGES
 
 Validation completed on Windows:
 
-- 110 automated tests passing;
+- 126 automated tests passing on the local Windows/Python 3.14 environment;
 - real filesystem event detection verified;
 - repeated events coalesced by debounce;
 - `NEW -> EXISTING -> RESOLVED` lifecycle verified end to end;
@@ -240,11 +242,11 @@ ollama pull qwen2.5-coder:3b
 atlas watch "C:\Meu Projeto" --ai
 ```
 
-Only findings that are not already active are reviewed. ATLAS sends sanitized,
-short source excerpts exclusively to `127.0.0.1:11434`, requests structured
-JSON, exposes no tools to the model, and never executes model output. If Ollama
-or the selected model is unavailable, local scanning continues normally. Use
-`--ai-model MODEL` to select another locally installed model.
+`--ai` only enables the review capability. Scans do not call the model
+automatically; select a finding in the TUI and press `A` to explicitly request
+a review. ATLAS sends sanitized, short source excerpts exclusively to
+`127.0.0.1:11434`, requests structured JSON, exposes no tools to the model, and
+never executes model output. Use `--ai-model MODEL` to select another local model.
 
 Use `--silent` to keep the watcher quiet, or persist rule exclusions with
 `--ignore-rule`:
@@ -278,6 +280,7 @@ Reports can also be generated directly from the CLI:
 ```powershell
 atlas report --format md
 atlas report --format html
+atlas report --format json
 atlas report --project "C:\Meu Projeto" --output "C:\Relatorios"
 ```
 
@@ -291,6 +294,7 @@ Keyboard shortcuts:
 - `W`: start or stop watching
 - `S`: run a full manual scan
 - `Enter`: open details for the selected finding
+- `A`: request a local AI review of the selected finding when started with `--ai`
 - `R`: refresh
 - `Q`: quit
 
@@ -311,7 +315,9 @@ Python caches, test/build artifacts, `dist`, and `build`.
 | ATLAS Native | Secrets, risky APIs, exposed binds, Docker basics | Built in |
 | ATLAS Security Guard | Prompt injection, exfiltration chains, obfuscation, tool abuse | Built in |
 | Microsoft Defender | Malware/spyware state and detection history on Windows | Built into Windows |
-| Ollama AI | Context review of new, sanitized findings | `winget install Ollama.Ollama` |
+| Executable inspection | Streaming SHA-256 and Authenticode status; unsigned is not proof of malware | Built into Windows |
+| YARA | Optional scanning with selected local rules and bounded runtime | `py -m pip install 'atlas-security-agent[yara]'` |
+| Ollama AI | Explicit review of a selected, sanitized finding or user-requested chat context | `winget install Ollama.Ollama` |
 | Semgrep | Multi-language static analysis | `python -m pip install semgrep` |
 | Bandit | Python security linting | `python -m pip install bandit` |
 | pip-audit | Python dependencies | `python -m pip install pip-audit` |
@@ -332,6 +338,8 @@ atlas dashboard               # system security dashboard
 atlas security                # read-only machine scan
 atlas malware status          # Defender protection and detection status
 atlas malware scan "C:\Path" # custom Defender scan without automatic remediation
+atlas malware inspect "C:\Path\program.exe" # hash/signature metadata; does not execute the file
+atlas malware yara "C:\Path" --rules "C:\Trusted-YARA-Rules" # optional local rules only
 atlas monitor start           # background events + code Watchdogs for all configured paths
 atlas monitor install         # start now and register ATLAS for Windows login
 atlas monitor status
@@ -350,6 +358,8 @@ atlas config --add-path "C:\Meu Projeto"
 atlas config --ignore-rule RULE-ID
 atlas config --unignore-rule RULE-ID
 atlas config --risk RULE-ID=HIGH
+atlas config --suppress-finding FINGERPRINT="Reason" --suppression-days 30
+atlas config --unsuppress-finding FINGERPRINT
 ```
 
 ## Finding lifecycle

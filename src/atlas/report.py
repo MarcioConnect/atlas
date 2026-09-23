@@ -43,14 +43,14 @@ def _summary(database: Database, project_path: Path | None = None) -> dict[str, 
         "credentials": 100, "network": 100, "containers": 100, "host": 100, "code": 100, "overall": -1,
     }
     result = {"total": len(findings), "critical": 0, "high": 0, "medium": 0,
-              "low": 0, "info": 0, "new": 0, "existing": 0, "resolved": 0,
+              "low": 0, "info": 0, "new": 0, "existing": 0, "resolved": 0, "suppressed": 0,
               "score": int(system_scan.score) if system_scan else -1, **breakdown}
     for finding in findings:
         severity = str(getattr(finding, "severity", "INFO")).casefold()
         state = str(getattr(finding, "state", "")).casefold()
         if severity in result:
             result[severity] += 1
-        if state in {"new", "existing", "resolved"}:
+        if state in {"new", "existing", "resolved", "suppressed"}:
             result[state] += 1
     return result
 
@@ -60,7 +60,7 @@ def _summary_markdown(summary: dict[str, int]) -> list[str]:
     return [
         "## Resumo executivo", "",
         f"- **Security Score:** `{score}`",
-        f"- **Findings totais:** `{summary['total']}` (novos: `{summary['new']}`, existentes: `{summary['existing']}`, resolvidos: `{summary['resolved']}`)",
+        f"- **Findings totais:** `{summary['total']}` (novos: `{summary['new']}`, existentes: `{summary['existing']}`, suprimidos: `{summary['suppressed']}`, resolvidos: `{summary['resolved']}`)",
         f"- **Severidades:** CRITICAL `{summary['critical']}` · HIGH `{summary['high']}` · MEDIUM `{summary['medium']}` · LOW `{summary['low']}` · INFO `{summary['info']}`",
         f"- **Score por domínio:** credenciais {summary['credentials']} · rede {summary['network']} · containers {summary['containers']} · host {summary['host']} · código {summary['code']}",
         "- **Interpretação:** o score considera causas únicas por domínio e limita repetições; findings são sinais para revisão, não prova automática de comprometimento.", "",
@@ -85,11 +85,15 @@ def _section_findings(title: str, findings: Iterable[object]) -> list[str]:
         evidence = _safe(getattr(item, "evidence", "-"))
         risk = _safe(getattr(item, "risk", "-"))
         recommendation = _safe(getattr(item, "recommendation", "-"))
+        category = _safe(getattr(item, "category", "system"))
+        confidence = getattr(item, "confidence", None)
+        confidence_label = f" · confiança {max(0, min(100, int(confidence)))}%" if confidence is not None else ""
         state = getattr(item, "state", None)
         state_label = f" · {_safe(state)}" if state else ""
         lines.extend([
             f"### {severity}{state_label} — {description}",
             f"- Scanner: `{scanner}`",
+            f"- Categoria: `{category}`{confidence_label}",
             f"- Regra: `{rule}`",
             f"- Arquivo/componente: `{location}`",
             f"- Evidência: `{evidence}`",
@@ -254,6 +258,92 @@ def generate_markdown_report(
         path = destination / f"atlas-report-{generated:%Y-%m-%d-%H%M%S}.md"
     report = render_report(database, project_path, generated) if project_path else render_consolidated_report(database, generated)
     path.write_text(report, encoding="utf-8")
+    return path
+
+
+def _finding_payload(item: object) -> dict[str, object]:
+    """Serialize one finding using the same redaction policy as human reports."""
+    fields = {
+        "fingerprint": "fingerprint", "category": "category", "severity": "severity",
+        "confidence": "confidence", "scanner": "scanner", "rule": "rule_id",
+        "file": "file_path", "line": "line", "description": "description",
+        "evidence": "evidence", "risk": "risk", "recommendation": "recommendation",
+        "state": "state", "first_seen": "first_seen", "last_seen": "last_seen",
+        "resolved_at": "resolved_at",
+    }
+    result: dict[str, object] = {}
+    for output, attribute in fields.items():
+        value = getattr(item, attribute, None)
+        if hasattr(value, "isoformat"):
+            value = value.isoformat()
+        if isinstance(value, str):
+            value = _safe(value)
+        result[output] = value
+    return result
+
+
+def render_json_report(database: Database, project_path: Path | None = None, now: datetime | None = None) -> str:
+    """Render a machine-readable report with explicit scanner coverage."""
+    generated = now or datetime.now().astimezone()
+    projects = [project_path.resolve()] if project_path else _known_projects(database)
+    if not projects:
+        projects = [Path.cwd().resolve()]
+    project_data = []
+    for project in projects:
+        scan = database.latest_code_scan(str(project))
+        findings = database.code_findings(str(project)) if scan else []
+        try:
+            coverage = json.loads(scan.scanners or "[]") if scan else []
+        except (TypeError, ValueError):
+            coverage = []
+        if not isinstance(coverage, list):
+            coverage = []
+        project_data.append({
+            "path": _safe(project),
+            "scan": ({
+                "status": scan.status,
+                "started_at": scan.started_at.isoformat() if scan.started_at else None,
+                "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,
+                "files_analyzed": scan.files_analyzed,
+                "changes": scan.changes,
+                "coverage": coverage,
+                "complete": bool(scan.completed_at and scan.status in {"SAFE", "FINDINGS"}
+                                 and any(isinstance(row, dict) and row.get("name") == "ATLAS Native"
+                                         and row.get("available") for row in coverage)),
+                "unavailable_scanners": [row.get("name") for row in coverage
+                                         if isinstance(row, dict) and not row.get("available")],
+            } if scan else None),
+            "findings": [_finding_payload(item) for item in findings],
+        })
+    system = database.latest_scan()
+    return json.dumps({
+        "product": "ATLAS Security Agent",
+        "generated_at": generated.astimezone().isoformat(),
+        "hostname": _safe(socket.gethostname()),
+        "mode": "local-read-only",
+        "summary": _summary(database, project_path),
+        "system_scan": ({
+            "created_at": system.created_at.isoformat(), "score": system.score,
+            "findings": [_finding_payload(item) for item in system.findings],
+        } if system else None),
+        "projects": project_data,
+        "limitation": "A clean or incomplete scan does not guarantee absence of vulnerabilities.",
+    }, ensure_ascii=False, indent=2)
+
+
+def generate_json_report(
+    database: Database,
+    project_path: Path | None = None,
+    output_dir: Path | None = None,
+    now: datetime | None = None,
+) -> Path:
+    generated = now or datetime.now().astimezone()
+    destination = output_dir or downloads_dir()
+    destination.mkdir(parents=True, exist_ok=True)
+    path = destination / f"atlas-report-{generated:%Y-%m-%d}.json"
+    if path.exists():
+        path = destination / f"atlas-report-{generated:%Y-%m-%d-%H%M%S}.json"
+    path.write_text(render_json_report(database, project_path, generated), encoding="utf-8")
     return path
 
 

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
 from atlas.database import Database
-from atlas.watch_tui import WatchScreen, WatchdogApp
-
+from atlas.watch_tui import WatchdogApp, WatchScreen
 
 PROJECT = Path(r"C:\atlas-demo")
 OUTPUT = Path(__file__).resolve().parents[1] / "docs" / "screenshots" / ".atlas-watchdog.svg"
@@ -26,11 +25,11 @@ async def capture() -> None:
                 await pilot.pause()
                 screen = app.screen
                 if not isinstance(screen, WatchScreen):
-                    raise RuntimeError("Watchdog screen did not open")
+                    raise TypeError("Unexpected watchdog screen type")
                 screen.watchdog.state.status = "SAFE"
                 screen.watchdog.state.files_analyzed = 24
                 screen.watchdog.state.changes = 0
-                screen.watchdog.state.last_scan_at = datetime.now(timezone.utc)
+                screen.watchdog.state.last_scan_at = datetime.now(UTC)
                 await screen.show_view()
                 await pilot.pause()
                 app.save_screenshot(filename=OUTPUT.name, path=str(OUTPUT.parent))

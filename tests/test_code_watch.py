@@ -192,3 +192,14 @@ def test_initial_baseline_does_not_report_preexisting_findings_as_new(tmp_path: 
     assert result["NEW"] == []
     assert len(result["EXISTING"]) == 1
     assert watcher.database.code_findings(str(project), "NEW") == []
+
+
+def test_ai_enabled_watch_does_not_review_or_send_findings_automatically(tmp_path: Path, monkeypatch):
+    project = tmp_path / "no-auto-ai"
+    project.mkdir()
+    SequenceScanner.batches = [[issue(project)]]
+    watcher = CodeWatchdog(project, Database(tmp_path / "no-auto-ai.sqlite"), scanner_factory=SequenceScanner,
+                           ai_enabled=True)
+    monkeypatch.setattr("atlas.ollama_ai.OllamaReviewer.review", lambda *_args: (_ for _ in ()).throw(AssertionError("unexpected AI call")))
+    result = watcher.scan_now(None)
+    assert len(result["NEW"]) == 1

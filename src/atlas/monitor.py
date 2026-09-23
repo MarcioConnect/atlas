@@ -141,6 +141,7 @@ class MonitorService:
         self._containers: dict[str, str] = {}
         self._firewall: dict[str, bool] = {}
         self._threats: set[tuple[str, str]] = set()
+        self._persistence: dict[str, str] = {}
 
     def record(self, kind: str, severity: Severity, component: str, detail: str, risk: str = "") -> None:
         self.database.add_monitor_event(MonitorEvent(
@@ -260,6 +261,23 @@ class MonitorService:
                 )
         self._threats = current
 
+    def _snapshot_persistence(self, initial: bool = False) -> None:
+        from atlas.threats import persistence_snapshot
+
+        snapshot = persistence_snapshot()
+        current = {f"{item['kind']}:{item['name']}": item["fingerprint"] for item in snapshot}
+        if not initial:
+            for identity in current.keys() - self._persistence.keys():
+                self.record("persistence", Severity.MEDIUM, identity, "entrada de inicialização adicionada",
+                            "Revise se a inicialização automática era esperada.")
+            for identity in current.keys() & self._persistence.keys():
+                if current[identity] != self._persistence[identity]:
+                    self.record("persistence", Severity.MEDIUM, identity, "entrada de inicialização modificada",
+                                "Revise o programa associado sem executá-lo.")
+            for identity in self._persistence.keys() - current.keys():
+                self.record("persistence", Severity.INFO, identity, "entrada de inicialização removida")
+        self._persistence = current
+
     def run(self) -> None:
         STOP_PATH.unlink(missing_ok=True)
         handler = ChangeHandler(self.database)
@@ -279,8 +297,12 @@ class MonitorService:
         self._snapshot_docker(initial=True)
         self._snapshot_firewall(initial=True)
         self._snapshot_threats(initial=True)
+        try:
+            self._snapshot_persistence(initial=True)
+        except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+            pass
         self.record("monitor", Severity.INFO, "ATLAS", f"monitor iniciado em {len(self.roots)} caminho(s)")
-        last_services = last_docker = last_threats = last_scan = time.monotonic()
+        last_services = last_docker = last_threats = last_persistence = last_scan = time.monotonic()
         failure = ""
         try:
             while not STOP_PATH.exists():
@@ -308,6 +330,12 @@ class MonitorService:
                     except Exception as exc:
                         self.record("monitor-error", Severity.LOW, "antimalware", type(exc).__name__)
                     last_threats = started
+                if started - last_persistence >= 60:
+                    try:
+                        self._snapshot_persistence()
+                    except Exception as exc:
+                        self.record("monitor-error", Severity.LOW, "persistence", type(exc).__name__)
+                    last_persistence = started
                 if started - last_scan >= self.settings.monitor_security_interval_seconds:
                     try:
                         SecurityScanner(self.database).scan(self.roots)

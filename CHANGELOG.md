@@ -27,6 +27,11 @@ All notable changes to ATLAS are documented in this file.
 
 ## [Unreleased]
 
+- Add finding category/confidence metadata, expiring reasoned suppressions, and JSON report export.
+- Require an explicit finding selection before any Watchdog Ollama review; harden multi-watch startup and stop-during-scan state.
+- Add optional local YARA scans, SHA-256/Authenticode executable inspection, and read-only startup persistence snapshots.
+- Add additive SQLite migration coverage, bounded source-file reads, Windows CI matrix, CodeQL and Dependabot configuration.
+- Document privacy, threat model, permission boundaries, and artifact signing/integrity limitations.
 - Add automatic project-scoped source retrieval, content search, line windows and sanitized memory caching.
 - Add per-project conversational context, source coverage, `/context`, `/clear`, and persistent `/ai on|off` for panel scans.
 - Respect `atlas agent --model` for the local assistant and optional Watch review.

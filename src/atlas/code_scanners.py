@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tomllib
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ IGNORED_DIRS = {
 } | SKIP_DIRS
 PRIORITY_SUFFIXES = {".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".ps1", ".bat", ".json", ".yaml", ".yml", ".toml"}
 PRIORITY_NAMES = {"dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"}
+MAX_SOURCE_FILE_BYTES = 2_000_000
 INSTALL_HINTS = {
     "Ruff": "python -m pip install ruff",
     "Semgrep": "python -m pip install semgrep",
@@ -47,6 +49,10 @@ class NormalizedFinding:
     evidence: str
     recommendation: str
     fingerprint: str = ""
+    category: str = "code"
+    confidence: int = 70
+    suppressed: bool = False
+    suppression_reason: str = ""
 
     def finalize(self, project: Path) -> NormalizedFinding:
         absolute = Path(self.file_path)
@@ -61,6 +67,24 @@ class NormalizedFinding:
         self.description = redact(self.description)
         self.evidence = redact(self.evidence)
         self.recommendation = redact(self.recommendation)
+        rule = self.rule_id.casefold()
+        if any(token in rule for token in ("secret", "credential", "password", "token")):
+            self.category = "credentials"
+        elif any(token in rule for token in ("docker", "container", "privileged")):
+            self.category = "containers"
+        elif any(token in rule for token in ("network", "http", "tls", "port", "firewall")):
+            self.category = "network"
+        elif any(token in rule for token in ("dependency", "vuln", "cve", "audit")):
+            self.category = "dependencies"
+        elif any(token in rule for token in ("prompt", "injection", "exfiltration", "tool-abuse")):
+            self.category = "agent-safety"
+        elif "syntax" in rule:
+            self.category = "correctness"
+        self.confidence = max(0, min(100, int(self.confidence)))
+        if self.scanner == "ATLAS Syntax":
+            self.confidence = max(self.confidence, 95)
+        elif rule in {"hardcoded-secret", "exposed-secret"}:
+            self.confidence = max(self.confidence, 85)
         context = _finding_context(absolute, self.line)
         location = context or str(self.line or 0)
         identity = f"{self.scanner.casefold()}|{self.rule_id.casefold()}|{relative.casefold()}|{location}"
@@ -78,6 +102,10 @@ class NormalizedFinding:
             "description": self.description,
             "evidence": self.evidence,
             "recommendation": self.recommendation,
+            "category": self.category,
+            "confidence": self.confidence,
+            "suppressed": self.suppressed,
+            "suppression_reason": redact(self.suppression_reason),
         }
 
 
@@ -86,12 +114,19 @@ def _finding_context(path: Path, line: int | None) -> str:
     if not line or line < 1:
         return ""
     try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if path.stat().st_size > MAX_SOURCE_FILE_BYTES:
+            return ""
+        selected_line = ""
+        with path.open(encoding="utf-8", errors="replace") as stream:
+            for index, current in enumerate(stream, 1):
+                if index == line:
+                    selected_line = current
+                    break
     except OSError:
         return ""
-    if line > len(lines):
+    if not selected_line:
         return ""
-    value = lines[line - 1].strip().casefold()
+    value = selected_line.strip().casefold()
     value = re.sub(r"(['\"]).*?\1", "[literal]", value)
     value = re.sub(r"\b\d+(?:\.\d+)?\b", "[number]", value)
     value = re.sub(r"\s+", " ", value)
@@ -151,7 +186,8 @@ def discover_files(project: Path) -> list[Path]:
         candidates = scoped_files(project, IGNORED_DIRS)
         for path in candidates:
             try:
-                if path.is_file() and is_priority_file(path) and not is_ignored(path, project):
+                if (path.is_file() and path.stat().st_size <= MAX_SOURCE_FILE_BYTES
+                        and is_priority_file(path) and not is_ignored(path, project)):
                     found.append(path.resolve())
             except OSError:
                 continue
@@ -191,7 +227,8 @@ class LocalCodeScanners:
             targets = []
             for item in changed:
                 path = item.expanduser().resolve()
-                if path.exists() and path.is_file() and is_priority_file(path) and not is_ignored(path, self.project):
+                if (path.exists() and path.is_file() and path.stat().st_size <= MAX_SOURCE_FILE_BYTES
+                        and is_priority_file(path) and not is_ignored(path, self.project)):
                     targets.append(path)
         result = CodeScanResult(files_analyzed=len(targets))
         # Reconcile complete findings for each changed file. Filtering out unchanged
@@ -216,9 +253,16 @@ class LocalCodeScanners:
             override = settings.risk_overrides.get(item.rule_id) or settings.risk_overrides.get(item.scanner)
             if override:
                 item.severity = normalize_severity(override)
+            suppression = next((entry for entry in settings.finding_suppressions
+                                if entry.get("fingerprint") == item.fingerprint
+                                and _suppression_active(entry)), None)
+            if suppression:
+                item.suppressed = True
+                item.suppression_reason = redact(suppression.get("reason", ""))[:500]
             unique[item.fingerprint] = item
         result.findings = list(unique.values())
         return result
+
 
     def _syntax(self, targets: list[Path], result: CodeScanResult) -> None:
         """Parse whole changed files without importing or executing user code."""
@@ -591,3 +635,13 @@ class LocalCodeScanners:
                     item.get("Title") or "Possible exposed secret", "Sensitive value [REDACTED]",
                     "Remove and rotate the secret, then use an approved secret store.",
                 ))
+
+
+def _suppression_active(entry: dict[str, str]) -> bool:
+    try:
+        expires = datetime.fromisoformat(entry["expires_at"])
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=UTC)
+        return expires > datetime.now(UTC)
+    except (KeyError, TypeError, ValueError):
+        return False

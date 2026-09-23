@@ -52,8 +52,15 @@ class MultiProjectWatchdog:
         return {path: watcher.state for path, watcher in self.watchdogs.items()}
 
     def start(self, initial_scan: bool = True) -> None:
-        for watcher in self.watchdogs.values():
-            watcher.start(initial_scan=initial_scan)
+        started: list[CodeWatchdog] = []
+        try:
+            for watcher in self.watchdogs.values():
+                watcher.start(initial_scan=initial_scan)
+                started.append(watcher)
+        except Exception:
+            for watcher in reversed(started):
+                watcher.stop()
+            raise
 
     def stop(self) -> None:
         for watcher in self.watchdogs.values():

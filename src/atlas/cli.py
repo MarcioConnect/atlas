@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import typer
@@ -50,11 +51,12 @@ def _monitor_roots(paths: list[Path] | None) -> list[Path]:
 
 @app.command()
 def malware(
-    action: str = typer.Argument("status", help="status ou scan"),
+    action: str = typer.Argument("status", help="status, scan, inspect ou yara"),
     path: Path | None = typer.Argument(None, help="Arquivo ou diretorio para scan customizado."),
+    rules: Path | None = typer.Option(None, "--rules", help="Diretorio local confiavel de regras YARA."),
 ) -> None:
     """Consulta o Microsoft Defender ou executa scan sem remediacao automatica."""
-    from atlas.threats import defender_snapshot, scan_with_defender
+    from atlas.threats import defender_snapshot, inspect_executable, scan_with_defender, scan_with_yara
 
     action = action.casefold()
     if action == "status":
@@ -68,8 +70,26 @@ def malware(
         console.print("[green]Defender ACTIVE[/]" if enabled else "[red]Defender protection incomplete[/]")
         console.print(f"Detections in Defender history: {len(snapshot.detections)}")
         return
+    if action == "inspect" and path is not None:
+        target = path.expanduser().resolve()
+        if target.suffix.casefold() not in {".exe", ".dll", ".sys", ".ocx", ".scr"}:
+            raise typer.BadParameter("inspect aceita executáveis Windows (.exe, .dll, .sys, .ocx, .scr).")
+        try:
+            console.print_json(json.dumps(inspect_executable(target), ensure_ascii=False))
+        except (OSError, ValueError) as exc:
+            raise typer.BadParameter(f"Não foi possível inspecionar o arquivo: {type(exc).__name__}") from exc
+        return
+    if action == "yara" and path is not None and rules is not None:
+        try:
+            result = scan_with_yara(path, rules)
+        except (OSError, ValueError) as exc:
+            raise typer.BadParameter(f"Não foi possível executar YARA: {type(exc).__name__}") from exc
+        console.print_json(json.dumps(result, ensure_ascii=False))
+        if not result.get("available") or not result.get("complete"):
+            raise typer.Exit(1)
+        return
     if action != "scan" or path is None:
-        raise typer.BadParameter("Use: atlas malware status ou atlas malware scan CAMINHO")
+        raise typer.BadParameter("Use malware status, scan CAMINHO, inspect ARQUIVO.exe ou yara CAMINHO --rules DIR")
     target = path.expanduser().resolve()
     console.print("[cyan]Defender custom scan (read-only remediation mode)...[/]")
     clean, detail = scan_with_defender(target)
@@ -119,6 +139,9 @@ def configure(
     remove_path: Path | None = typer.Option(None, "--remove-path", help="Remove um projeto salvo."),
     ignore_rule: str | None = typer.Option(None, "--ignore-rule", help="Ignora uma regra ou scanner."),
     unignore_rule: str | None = typer.Option(None, "--unignore-rule", help="Remove uma regra da lista ignorada."),
+    suppress_finding: str | None = typer.Option(None, "--suppress-finding", help="Suprime FINGERPRINT=MOTIVO por prazo definido."),
+    unsuppress_finding: str | None = typer.Option(None, "--unsuppress-finding", help="Remove supressão pela fingerprint."),
+    suppression_days: int = typer.Option(30, "--suppression-days", min=1, max=3650, help="Validade da supressão em dias."),
     risk: str | None = typer.Option(None, "--risk", help="Altera severidade no formato REGRA=HIGH."),
 ) -> None:
     """Mostra ou atualiza a configuração persistente do ATLAS."""
@@ -135,6 +158,18 @@ def configure(
         settings.ignored_rules = sorted(set(settings.ignored_rules).union({ignore_rule}))
     if unignore_rule:
         settings.ignored_rules = [item for item in settings.ignored_rules if item.casefold() != unignore_rule.casefold()]
+    if suppress_finding:
+        fingerprint, separator, reason = suppress_finding.partition("=")
+        fingerprint, reason = fingerprint.strip(), reason.strip()
+        if not separator or len(fingerprint) != 64 or not reason:
+            raise typer.BadParameter("Use --suppress-finding FINGERPRINT=MOTIVO com justificativa.")
+        expires = (datetime.now(UTC) + timedelta(days=suppression_days)).isoformat()
+        settings.finding_suppressions = [item for item in settings.finding_suppressions
+                                         if item.get("fingerprint") != fingerprint]
+        settings.finding_suppressions.append({"fingerprint": fingerprint, "reason": reason[:500], "expires_at": expires})
+    if unsuppress_finding:
+        settings.finding_suppressions = [item for item in settings.finding_suppressions
+                                         if item.get("fingerprint") != unsuppress_finding]
     if risk:
         try:
             rule, severity = (part.strip() for part in risk.split("=", 1))
@@ -144,12 +179,13 @@ def configure(
         if not rule or severity not in {item.value for item in Severity}:
             raise typer.BadParameter("Severidade deve ser CRITICAL, HIGH, MEDIUM, LOW ou INFO")
         settings.risk_overrides[rule] = severity
-    if any((add_path, remove_path, ignore_rule, unignore_rule, risk)):
+    if any((add_path, remove_path, ignore_rule, unignore_rule, risk, suppress_finding, unsuppress_finding)):
         settings.save()
     console.print_json(json.dumps({
         "watch_paths": settings.watch_paths,
         "ignored_rules": settings.ignored_rules,
         "risk_overrides": settings.risk_overrides,
+        "finding_suppressions": settings.finding_suppressions,
         "notifications_enabled": settings.notifications_enabled,
         "silent_mode": settings.silent_mode,
         "debounce_seconds": settings.watchdog_debounce_seconds,
@@ -159,16 +195,16 @@ def configure(
 @app.command()
 def report(
     project: Path | None = typer.Option(None, "--project", "-p", help="Projeto específico; omitido inclui todos."),
-    output_format: str = typer.Option("md", "--format", "-f", help="Formato: md ou html."),
+    output_format: str = typer.Option("md", "--format", "-f", help="Formato: md, html ou json."),
     output: Path | None = typer.Option(None, "--output", "-o", help="Diretório de destino; padrão Downloads."),
 ) -> None:
     """Gera um relatório sanitizado do ATLAS."""
-    from atlas.report import generate_html_report, generate_markdown_report
+    from atlas.report import generate_html_report, generate_json_report, generate_markdown_report
 
     normalized = output_format.casefold()
-    if normalized not in {"md", "markdown", "html"}:
-        raise typer.BadParameter("Formato deve ser md ou html")
-    generator = generate_html_report if normalized == "html" else generate_markdown_report
+    if normalized not in {"md", "markdown", "html", "json"}:
+        raise typer.BadParameter("Formato deve ser md, html ou json")
+    generator = {"html": generate_html_report, "json": generate_json_report}.get(normalized, generate_markdown_report)
     selected = project.expanduser().resolve() if project else None
     path = generator(Database(), selected, output.expanduser().resolve() if output else None)
     console.print(f"[green]Relatório ATLAS criado:[/] {path}")

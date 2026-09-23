@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from datetime import timedelta
 from pathlib import Path
 
-from sqlalchemy import create_engine, desc, select, update
+from sqlalchemy import create_engine, desc, inspect, select, text, update
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm import selectinload
 
@@ -28,6 +28,21 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.engine = create_engine(f"sqlite:///{self.path}", future=True, connect_args={"timeout": 30})
         Base.metadata.create_all(self.engine)
+        self._migrate_code_findings()
+
+    def _migrate_code_findings(self) -> None:
+        """Additive SQLite migration for databases created by earlier releases."""
+        columns = {item["name"] for item in inspect(self.engine).get_columns("code_findings")}
+        migrations = {
+            "category": "ALTER TABLE code_findings ADD COLUMN category VARCHAR(40) NOT NULL DEFAULT 'code'",
+            "confidence": "ALTER TABLE code_findings ADD COLUMN confidence INTEGER NOT NULL DEFAULT 70",
+            "suppressed": "ALTER TABLE code_findings ADD COLUMN suppressed BOOLEAN NOT NULL DEFAULT 0",
+            "suppression_reason": "ALTER TABLE code_findings ADD COLUMN suppression_reason TEXT NOT NULL DEFAULT ''",
+        }
+        with self.engine.begin() as connection:
+            for column, statement in migrations.items():
+                if column not in columns:
+                    connection.execute(text(statement))
 
     def session(self) -> DBSession:
         return DBSession(self.engine, expire_on_commit=False)
@@ -155,7 +170,7 @@ class Database:
         contains normalized absolute paths actually inspected by that scanner.
         """
         now = utcnow()
-        result: dict[str, list[CodeFinding]] = {"NEW": [], "EXISTING": [], "RESOLVED": []}
+        result: dict[str, list[CodeFinding]] = {"NEW": [], "EXISTING": [], "RESOLVED": [], "SUPPRESSED": []}
         with self.session() as db:
             db.execute(
                 update(CodeFinding)
@@ -174,14 +189,15 @@ class Database:
                 seen.add(fingerprint)
                 item = existing.get(fingerprint)
                 if item is None:
-                    item = CodeFinding(project_path=project_path, state="NEW", first_seen=now, **data)
+                    state = "SUPPRESSED" if data.get("suppressed") else "NEW"
+                    item = CodeFinding(project_path=project_path, state=state, first_seen=now, **data)
                     db.add(item)
-                    result["NEW"].append(item)
+                    result[state].append(item)
                 else:
                     reappeared = item.state == "RESOLVED"
                     for key, value in data.items():
                         setattr(item, key, value)
-                    item.state = "NEW" if reappeared else "EXISTING"
+                    item.state = "SUPPRESSED" if item.suppressed else ("NEW" if reappeared else "EXISTING")
                     item.resolved_at = None
                     if reappeared:
                         item.first_seen = now

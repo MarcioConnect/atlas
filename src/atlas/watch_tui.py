@@ -27,6 +27,7 @@ class WatchScreen(Screen):
         ("w", "toggle_watch", "Start/Stop"),
         ("s", "manual_scan", "Scan"),
         ("enter", "details", "Details"),
+        ("a", "review_selected", "AI review"),
         ("r", "refresh_view", "Refresh"),
     ]
 
@@ -123,10 +124,36 @@ class WatchScreen(Screen):
         await body.mount(Static(
             f"[{SEVERITY_STYLE.get(item.severity, '')}]{item.severity}[/] · {item.state}\n\n"
             f"[b]Scanner[/b] {item.scanner}\n[b]Rule[/b] {item.rule_id}\n"
-            f"[b]File[/b] {self._relative(item.file_path)}:{item.line or '-'}\n\n"
+            f"[b]Category[/b] {item.category} · [b]Confidence[/b] {item.confidence}%\n"
+            + (f"[b]Suppression[/b] {item.suppression_reason}\n" if item.suppressed else "")
+            + f"[b]File[/b] {self._relative(item.file_path)}:{item.line or '-'}\n\n"
             f"[b]Description[/b]\n{item.description}\n\n[b]Evidence[/b]\n{item.evidence}\n\n"
             f"[b]Recommendation[/b]\n{item.recommendation}", classes="watch-panel",
         ))
+
+    def action_review_selected(self) -> None:
+        if not self.watchdog.ai_enabled:
+            self.notify("Start with --ai to enable explicit local reviews", severity="warning")
+            return
+        if not self.visible_findings:
+            self.notify("Select a finding first", severity="information")
+            return
+        try:
+            row = self.query(DataTable).first().cursor_row
+            item = self.visible_findings[row]
+        except Exception:
+            self.notify("Select a finding first", severity="information")
+            return
+
+        def review() -> None:
+            try:
+                status = self.watchdog.review_finding_with_ai(item)
+                message = status.detail
+            except Exception as exc:
+                message = f"Review unavailable: {type(exc).__name__}"
+            self.app.call_from_thread(self.notify, message[:400], severity="information")
+
+        self.run_worker(review, thread=True, exclusive=True)
 
     async def show_view(self) -> None:
         self._last_render_key = self._state_key()
@@ -192,10 +219,10 @@ class WatchScreen(Screen):
             return [Static(f"[b]{title}[/b]\nNone", classes="watch-panel")]
         table = DataTable(zebra_stripes=True, classes="watch-panel")
         table.cursor_type = "row"
-        table.add_columns("State", "Severity", "File", "Line", "Description", "Scanner")
+        table.add_columns("State", "Severity", "Confidence", "Category", "File", "Line", "Description", "Scanner")
         for item in findings:
             table.add_row(
-                item.state, f"[{SEVERITY_STYLE.get(item.severity, '')}]{item.severity}[/]",
+                item.state, f"[{SEVERITY_STYLE.get(item.severity, '')}]{item.severity}[/]", f"{item.confidence}%", item.category,
                 self._relative(item.file_path), str(item.line or "-"), item.description, item.scanner,
             )
         return [Static(f"[b]{title}[/b]", classes="watch-section"), table]

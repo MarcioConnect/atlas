@@ -19,6 +19,9 @@ classifiers = [
   "Operating System :: Microsoft :: Windows :: Windows 11",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Security",
 ]
 dependencies = [
@@ -34,6 +37,7 @@ dependencies = [
 dev = ["pytest>=8,<10", "build>=1.2,<2", "twine>=6,<7", "ruff>=0.12,<1", "pyinstaller>=6.15,<7", "pillow>=11,<13"]
 desktop = ["winotify>=1.1"]
 python-scanners = ["bandit>=1.9,<2", "pip-audit>=2.10,<3", "semgrep>=1.177,<2"]
+yara = ["yara-python>=4.5,<5"]
 
 [project.scripts]
 atlas = "atlas.cli:app"

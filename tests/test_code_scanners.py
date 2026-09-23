@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from atlas.code_scanners import LocalCodeScanners, NormalizedFinding, is_ignored, is_priority_file
@@ -116,3 +117,44 @@ def test_fingerprint_survives_unrelated_line_insertion(tmp_path: Path):
     target.write_text("# header\nresult = eval(user_input)\n", encoding="utf-8")
     second = NormalizedFinding("HIGH", "ATLAS Native", "python-eval", str(target), 2, "Issue", "safe", "Fix").finalize(tmp_path)
     assert first.fingerprint == second.fingerprint
+
+
+def test_findings_have_category_and_bounded_confidence(tmp_path: Path):
+    target = tmp_path / "app.py"
+    target.write_text("API_KEY = 'real-looking-secret-value'\n", encoding="utf-8")
+    finding = next(item for item in LocalCodeScanners(tmp_path).scan([target]).findings
+                   if item.rule_id == "hardcoded-secret")
+    record = finding.record()
+    assert record["category"] == "credentials"
+    assert 0 <= record["confidence"] <= 100
+    assert record["confidence"] >= 85
+
+
+def test_expiring_finding_suppression_requires_reason_and_stays_visible(tmp_path: Path, monkeypatch):
+    target = tmp_path / "app.py"
+    target.write_text("eval(user_input)\n", encoding="utf-8")
+    monkeypatch.setattr("atlas.code_scanners.shutil.which", lambda _name: None)
+    baseline = LocalCodeScanners(tmp_path).scan([target]).findings[0]
+    expiry = (datetime.now(UTC) + timedelta(days=2)).isoformat()
+    monkeypatch.setattr("atlas.code_scanners.Settings.load", lambda: Settings(
+        finding_suppressions=[{"fingerprint": baseline.fingerprint, "reason": "Reviewed legacy parser", "expires_at": expiry}],
+    ))
+    result = LocalCodeScanners(tmp_path).scan([target])
+    finding = next(item for item in result.findings if item.fingerprint == baseline.fingerprint)
+    assert finding.suppressed
+    assert finding.suppression_reason == "Reviewed legacy parser"
+    assert finding.record()["suppressed"] is True
+
+
+def test_expired_finding_suppression_is_ignored(tmp_path: Path, monkeypatch):
+    target = tmp_path / "app.py"
+    target.write_text("eval(user_input)\n", encoding="utf-8")
+    monkeypatch.setattr("atlas.code_scanners.shutil.which", lambda _name: None)
+    baseline = LocalCodeScanners(tmp_path).scan([target]).findings[0]
+    expiry = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    monkeypatch.setattr("atlas.code_scanners.Settings.load", lambda: Settings(
+        finding_suppressions=[{"fingerprint": baseline.fingerprint, "reason": "expired", "expires_at": expiry}],
+    ))
+    finding = next(item for item in LocalCodeScanners(tmp_path).scan([target]).findings
+                   if item.fingerprint == baseline.fingerprint)
+    assert not finding.suppressed

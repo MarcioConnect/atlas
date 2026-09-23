@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from atlas.database import Database
 from atlas.models import CodeFinding, Finding, MonitorEvent, Scan
-from atlas.report import generate_html_report, generate_markdown_report
+from atlas.report import generate_html_report, generate_json_report, generate_markdown_report
 
 
 def test_report_contains_system_and_watchdog_findings(tmp_path):
@@ -52,6 +52,44 @@ def test_html_report_is_standalone(tmp_path):
     assert "FINDINGS POR SEVERIDADE" in content
     assert "cards" in content and "Relat" in content
     assert "@media print" in content
+
+
+def test_json_report_includes_coverage_lifecycle_and_redacted_evidence(tmp_path):
+    import json
+
+    db = Database(tmp_path / "json.sqlite")
+    project = (tmp_path / "Project With Spaces").resolve()
+    scan = db.begin_code_scan(str(project))
+    db.finish_code_scan(scan.id, files_analyzed=1, changes=0, status="FINDINGS",
+                        scanners='[{"name":"ATLAS Native","available":true},{"name":"Semgrep","available":false}]')
+    with db.session() as session:
+        session.add(CodeFinding(project_path=str(project), fingerprint="f" * 64, scanner="ATLAS Native",
+                                rule_id="hardcoded-secret", file_path=str(project / "app.py"), line=3,
+                                severity="HIGH", category="credentials", confidence=91,
+                                description="Possible secret", evidence="password=[REDACTED]",
+                                recommendation="Rotate credential", state="NEW"))
+        session.commit()
+    output = generate_json_report(db, project, tmp_path / "reports")
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    item = payload["projects"][0]["findings"][0]
+    assert item["category"] == "credentials" and item["confidence"] == 91
+    assert payload["projects"][0]["scan"]["complete"] is True
+    assert payload["projects"][0]["scan"]["unavailable_scanners"] == ["Semgrep"]
+
+
+def test_html_report_escapes_untrusted_finding_text(tmp_path):
+    db = Database(tmp_path / "xss.sqlite")
+    scan = db.begin_code_scan(str(tmp_path.resolve()))
+    db.finish_code_scan(scan.id, files_analyzed=1, changes=0, status="FINDINGS", scanners="[]")
+    with db.session() as session:
+        session.add(CodeFinding(project_path=str(tmp_path.resolve()), fingerprint="x" * 64, scanner="Test",
+                                rule_id="xss", file_path="app.py", severity="HIGH",
+                                description="<script>alert(1)</script>", evidence="safe",
+                                recommendation="review", state="NEW"))
+        session.commit()
+    page = generate_html_report(db, tmp_path.resolve(), tmp_path / "html").read_text(encoding="utf-8")
+    assert "<script>alert(1)</script>" not in page
+    assert "&lt;script&gt;" in page
 
 
 def test_consolidated_report_lists_projects_and_file_changes(tmp_path, monkeypatch):
