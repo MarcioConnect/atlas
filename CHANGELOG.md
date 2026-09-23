@@ -25,7 +25,7 @@ All notable changes to ATLAS are documented in this file.
 - Preserve active findings after unrelated edits and reduce credential, Docker and dependency false positives.
 - Harden local model transport, Windows reparse point traversal and malformed model responses.
 
-## [Unreleased]
+## [0.1.7] - 2026-09-22
 
 - Add finding category/confidence metadata, expiring reasoned suppressions, and JSON report export.
 - Require an explicit finding selection before any Watchdog Ollama review; harden multi-watch startup and stop-during-scan state.
@@ -40,6 +40,8 @@ All notable changes to ATLAS are documented in this file.
 - Distinguish privileged Docker configuration from verified running containers.
 - Reject Ollama redirects, bypass HTTP proxies for loopback requests, and handle malformed model responses.
 - Preserve source line numbers while redacting multiline credentials; exclude Windows reparse points from traversal.
+
+## [Unreleased]
 
 ## [0.1.3] - 2026-09-15
 

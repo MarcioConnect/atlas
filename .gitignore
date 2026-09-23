@@ -5,6 +5,7 @@ __pycache__/
 .pytest-local/
 /.pytest-atlas-*/
 /.pytest-baseline-atlas/
+/.pytest-v*/
 .ci-temp/
 .ci-temp-new/
 .ci-security.json

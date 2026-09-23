@@ -1,4 +1,4 @@
-# ATLAS v0.1.6
+# ATLAS v0.1.7
 
 ## Painel integrado
 
@@ -49,7 +49,7 @@ outra linha do mesmo arquivo mudou. A seleção dos arquivos continua incrementa
 Findings exibem categoria e confiança estimada. Uma supressão individual requer
 motivo e prazo; ela continua visível no painel com estado `SUPPRESSED`.
 
-## Precisão e estabilidade da v0.1.6
+## Precisão e estabilidade da v0.1.7
 
 - Baseline inicial silenciosa: findings preexistentes começam como EXISTING.
 - Fingerprints usam contexto sanitizado e resistem a inserções em outras linhas.
@@ -65,8 +65,8 @@ atlas watch "C:\Meu Projeto"
 ```
 
 O Watch nao detecta todos os erros possiveis. As ferramentas opcionais ampliam
-a cobertura; resultados continuam exigindo revisão humana. A v0.1.6 está
-publicada; as mudanças desta árvore de trabalho ainda não foram lançadas.
+a cobertura; resultados continuam exigindo revisão humana. A v0.1.7 está
+publicada. Veja as limitações detalhadas em `IMPLEMENTATION_REPORT.md`.
 
 ATLAS is a defensive Security Watchdog for Windows that runs entirely in the
 terminal. It watches a source tree, scans changed code with local tools, and
@@ -82,7 +82,7 @@ watch mode does not call an LLM and does not consume AI tokens.
 
 Quer apenas usar? Baixe o executável pronto na página da release:
 
-**[Baixar ATLAS-Security-Agent.exe — v0.1.6](https://github.com/MarcioConnect/atlas/releases/download/v0.1.6/ATLAS-Security-Agent.exe)**
+**[Baixar ATLAS-Security-Agent.exe — v0.1.7](https://github.com/MarcioConnect/atlas/releases/download/v0.1.7/ATLAS-Security-Agent.exe)**
 
 Depois, no PowerShell:
 
@@ -90,6 +90,20 @@ Depois, no PowerShell:
 .\ATLAS-Security-Agent.exe --version
 .\ATLAS-Security-Agent.exe monitor start
 ```
+
+The release includes `ATLAS-Security-Agent.exe.sha256`. Verify that the download
+was not corrupted before running it:
+
+```powershell
+$expected = (Get-Content .\ATLAS-Security-Agent.exe.sha256).Split(' ')[0]
+$actual = (Get-FileHash .\ATLAS-Security-Agent.exe -Algorithm SHA256).Hash.ToLower()
+if ($actual -ne $expected) { throw "ATLAS checksum mismatch" }
+"ATLAS checksum OK"
+```
+
+The v0.1.7 executable is not Authenticode-signed; Windows may show a publisher
+warning. A checksum detects corruption but does not independently prove who
+published the file. See [`docs/SIGNING.md`](docs/SIGNING.md).
 
 Não precisa instalar Python, Git ou abrir navegador. A logo usada pelo
 executável está disponível em [`assets/atlas.ico`](assets/atlas.ico).

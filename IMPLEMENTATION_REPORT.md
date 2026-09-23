@@ -1,7 +1,8 @@
 # ATLAS implementation report
 
-Status: local engineering changes prepared on top of the existing v0.1.6 codebase.
-No release, package upload, commit, push, or repository visibility change was made.
+Status: v0.1.7 release prepared from the existing v0.1.6 codebase. The GitHub
+release contains the Windows executable and SHA-256 sidecar; no PyPI package was
+uploaded.
 
 ## Summary
 
@@ -45,7 +46,7 @@ project security documentation.
 - `py -m compileall -q src tests tools` — passed.
 - `git diff --check` — passed (Git emitted only line-ending conversion notices).
 - CLI smoke checks: `py -m atlas --version`, and `report`, `malware`, and
-  `config` help — passed; reports version 0.1.6.
+  `config` help — passed; reports version 0.1.7.
 - `py -m build` — wheel and source distribution built successfully.
 - `py -m twine check` on both built artifacts — passed.
 - Regression suite includes temp-directory filesystem watcher/debounce/lifecycle,
@@ -83,7 +84,8 @@ claimed. The full test result is not proof that ATLAS is vulnerability-free.
 - Dependabot, CodeQL, and Python 3.11–3.14 Windows CI are configured but were
   not run remotely in this local pass. Real multi-version validation awaits
   GitHub Actions.
-- Release metadata remains 0.1.6 to avoid an unauthorized version/release.
+- Authenticode signing is still unavailable because there is no legitimate
+  signing certificate configured; the executable is not claimed to be signed.
 
 ## Local commands
 
