@@ -82,3 +82,45 @@ def test_watch_without_path_uses_configured_projects(monkeypatch, tmp_path):
     result = runner.invoke(app, ["watch"])
     assert result.exit_code == 0
     assert opened == [[project.resolve()]]
+
+
+def test_scan_command_runs_one_local_project_scan(tmp_path, monkeypatch):
+    from atlas.config import Settings
+    from atlas.database import Database
+
+    project = tmp_path / "Project With Spaces"
+    project.mkdir()
+    (project / "app.py").write_text("eval(user_input)\n", encoding="utf-8")
+    database = Database(tmp_path / "atlas.sqlite")
+    monkeypatch.setattr("atlas.cli.Database", lambda: database)
+    monkeypatch.setattr("atlas.code_scanners.shutil.which", lambda _name: None)
+    monkeypatch.setattr("atlas.code_watch.Settings.load", lambda: Settings())
+    monkeypatch.setattr("atlas.code_scanners.Settings.load", lambda: Settings())
+
+    result = runner.invoke(app, ["scan", str(project)])
+
+    assert result.exit_code == 0, result.stdout
+    assert "ATLAS SCAN" in result.stdout
+    findings = database.code_findings(str(project.resolve()))
+    assert any(item.rule_id == "python-eval" for item in findings)
+
+
+def test_scan_command_supports_json_and_reports_partial_coverage(tmp_path, monkeypatch):
+    from atlas.config import Settings
+    from atlas.database import Database
+
+    project = tmp_path / "json project"
+    project.mkdir()
+    (project / "clean.py").write_text("print('hello')\n", encoding="utf-8")
+    database = Database(tmp_path / "atlas-json.sqlite")
+    monkeypatch.setattr("atlas.cli.Database", lambda: database)
+    monkeypatch.setattr("atlas.code_scanners.shutil.which", lambda _name: None)
+    monkeypatch.setattr("atlas.code_watch.Settings.load", lambda: Settings())
+    monkeypatch.setattr("atlas.code_scanners.Settings.load", lambda: Settings())
+
+    result = runner.invoke(app, ["scan", str(project), "--format", "json"])
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["projects"][0]["scan"]["complete"] is False
+    assert payload["projects"][0]["scan"]["unavailable_scanners"]

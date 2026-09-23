@@ -6,7 +6,8 @@ on:
       tag:
         description: Existing release tag
         required: true
-      default: v0.1.7
+        type: string
+        default: v0.1.8
 
 permissions:
   contents: write

@@ -29,6 +29,16 @@ class Database:
         self.engine = create_engine(f"sqlite:///{self.path}", future=True, connect_args={"timeout": 30})
         Base.metadata.create_all(self.engine)
         self._migrate_code_findings()
+        self._migrate_code_scans()
+
+    def _migrate_code_scans(self) -> None:
+        """Add scan coverage counters without replacing user history."""
+        columns = {item["name"] for item in inspect(self.engine).get_columns("code_scans")}
+        if "files_skipped_large" not in columns:
+            with self.engine.begin() as connection:
+                connection.execute(text(
+                    "ALTER TABLE code_scans ADD COLUMN files_skipped_large INTEGER NOT NULL DEFAULT 0"
+                ))
 
     def _migrate_code_findings(self) -> None:
         """Additive SQLite migration for databases created by earlier releases."""
@@ -115,7 +125,8 @@ class Database:
             return scan
 
     def finish_code_scan(
-        self, scan_id: int, *, files_analyzed: int, changes: int, status: str, scanners: str
+        self, scan_id: int, *, files_analyzed: int, changes: int, status: str, scanners: str,
+        files_skipped_large: int = 0,
     ) -> CodeScan | None:
         with self.session() as db:
             scan = db.get(CodeScan, scan_id)
@@ -123,6 +134,7 @@ class Database:
                 return None
             scan.completed_at = utcnow()
             scan.files_analyzed = files_analyzed
+            scan.files_skipped_large = max(0, files_skipped_large)
             scan.changes = changes
             scan.status = status
             scan.scanners = scanners
@@ -134,6 +146,19 @@ class Database:
             return db.scalars(
                 select(CodeScan).where(CodeScan.project_path == project_path).order_by(desc(CodeScan.id)).limit(1)
             ).first()
+
+    def has_completed_code_scan(self, project_path: str) -> bool:
+        """Return whether the project already has a successful scan to anchor its baseline."""
+        with self.session() as db:
+            return db.scalars(
+                select(CodeScan.id)
+                .where(
+                    CodeScan.project_path == project_path,
+                    CodeScan.completed_at.is_not(None),
+                    CodeScan.status.in_(("SAFE", "FINDINGS", "STOPPED")),
+                )
+                .limit(1)
+            ).first() is not None
 
     def accept_code_baseline(self, project_path: str) -> None:
         """Treat the first measured state as known without hiding future regressions."""

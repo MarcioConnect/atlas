@@ -1,8 +1,13 @@
 # ATLAS implementation report
 
-Status: v0.1.7 release prepared from the existing v0.1.6 codebase. The GitHub
-release contains the Windows executable and SHA-256 sidecar; no PyPI package was
-uploaded.
+Status: preparing v0.1.8 from the public v0.1.7 release. The v0.1.7 release
+contains the Windows executable and SHA-256 sidecar; no PyPI package was
+uploaded. The v0.1.8 release should remain a draft until its Windows build and
+checksum have been validated.
+
+The v0.1.8 candidate adds a one-shot `atlas scan` command,
+persists coverage gaps for source files skipped by the 2 MB limit, distinguishes
+incremental coverage, and prevents repeated baseline acceptance.
 
 ## Summary
 
@@ -46,14 +51,30 @@ project security documentation.
 - `py -m compileall -q src tests tools` — passed.
 - `git diff --check` — passed (Git emitted only line-ending conversion notices).
 - CLI smoke checks: `py -m atlas --version`, and `report`, `malware`, and
-  `config` help — passed; reports version 0.1.7.
+  `config` help — passed; the v0.1.7 release reported version 0.1.7.
 - `py -m build` — wheel and source distribution built successfully.
 - `py -m twine check` on both built artifacts — passed.
+- GitHub Actions for commit `8b149c2` — CI matrix and CodeQL succeeded; inspection
+  found the manual release workflow failed before starting jobs due to an invalid
+  `workflow_dispatch` input schema. The schema is corrected locally below but has
+  not yet been pushed or revalidated remotely.
 - Regression suite includes temp-directory filesystem watcher/debounce/lifecycle,
   Windows paths with spaces, optional scanner absence, redaction, migration,
   concurrent-start rollback, reporting and security helper tests. Platform
   APIs/external scanners are mocked where appropriate; this is not a separate
   clean-machine CI run.
+
+### Current local follow-up validation
+
+- Full pytest suite (`-p no:cacheprovider -o addopts='' -q`) — 136 passed in
+  64.40 seconds on Windows with Python 3.14 (temporary files outside the repo).
+- Focused regression set — 42 passed in 20.73 seconds.
+- `py -m ruff check src tests tools`, `py -m compileall -q src tests tools`,
+  `py -m atlas scan --help`, and `git diff --check` — passed.
+- The new `atlas scan` table/JSON flows, skipped-large-file coverage, additive
+  SQLite migration, incremental-scan scope, one-time baseline acceptance, and
+  partial-coverage UI state are covered by regression tests. These changes remain
+  local and have not been validated by remote CI.
 
 No before/after performance benchmark was recorded. Streaming source context and
 file-size limits reduce memory exposure by design, but no numerical speedup is
@@ -81,9 +102,9 @@ claimed. The full test result is not proof that ATLAS is vulnerability-free.
 - No Authenticode signing certificate or signing process is configured. The
   release workflow can generate a SHA-256 sidecar; no automatic updater,
   installer, or secure update-verification client was added.
-- Dependabot, CodeQL, and Python 3.11–3.14 Windows CI are configured but were
-  not run remotely in this local pass. Real multi-version validation awaits
-  GitHub Actions.
+- Dependabot, CodeQL, and Python 3.11–3.14 Windows CI are configured; CI/CodeQL
+  passed on the v0.1.7 main commit, but the current local
+  follow-up change has not yet run on the remote matrix.
 - Authenticode signing is still unavailable because there is no legitimate
   signing certificate configured; the executable is not claimed to be signed.
 

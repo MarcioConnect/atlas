@@ -147,6 +147,7 @@ class CodeScanResult:
     availability: list[ScannerAvailability] = field(default_factory=list)
     coverage: dict[str, set[str] | None] = field(default_factory=dict)
     files_analyzed: int = 0
+    files_skipped_large: int = 0
 
 
 def normalize_severity(value: str) -> str:
@@ -181,19 +182,26 @@ def is_priority_file(path: Path) -> bool:
 
 
 def discover_files(project: Path) -> list[Path]:
+    return _discover_files(project)[0]
+
+
+def _discover_files(project: Path) -> tuple[list[Path], int]:
     found: list[Path] = []
+    skipped_large = 0
     try:
         candidates = scoped_files(project, IGNORED_DIRS)
         for path in candidates:
             try:
-                if (path.is_file() and path.stat().st_size <= MAX_SOURCE_FILE_BYTES
-                        and is_priority_file(path) and not is_ignored(path, project)):
-                    found.append(path.resolve())
+                if path.is_file() and is_priority_file(path) and not is_ignored(path, project):
+                    if path.stat().st_size > MAX_SOURCE_FILE_BYTES:
+                        skipped_large += 1
+                    else:
+                        found.append(path.resolve())
             except OSError:
                 continue
     except OSError:
         pass
-    return found
+    return found, skipped_large
 
 
 def _run(command: list[str], cwd: Path, timeout: int = 120) -> subprocess.CompletedProcess[str]:
@@ -222,15 +230,18 @@ class LocalCodeScanners:
 
     def scan(self, changed: list[Path] | None = None, changed_lines: dict[str, set[int]] | None = None) -> CodeScanResult:
         if changed is None:
-            targets = discover_files(self.project)
+            targets, skipped_large = _discover_files(self.project)
         else:
             targets = []
+            skipped_large = 0
             for item in changed:
                 path = item.expanduser().resolve()
-                if (path.exists() and path.is_file() and path.stat().st_size <= MAX_SOURCE_FILE_BYTES
-                        and is_priority_file(path) and not is_ignored(path, self.project)):
-                    targets.append(path)
-        result = CodeScanResult(files_analyzed=len(targets))
+                if path.exists() and path.is_file() and is_priority_file(path) and not is_ignored(path, self.project):
+                    if path.stat().st_size > MAX_SOURCE_FILE_BYTES:
+                        skipped_large += 1
+                    else:
+                        targets.append(path)
+        result = CodeScanResult(files_analyzed=len(targets), files_skipped_large=skipped_large)
         # Reconcile complete findings for each changed file. Filtering out unchanged
         # lines here would falsely resolve still-present findings in that file.
         self._native(targets, result)

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from atlas.code_scanners import LocalCodeScanners, NormalizedFinding, is_ignored, is_priority_file
+from atlas.code_scanners import LocalCodeScanners, NormalizedFinding, discover_files, is_ignored, is_priority_file
 from atlas.config import Settings
 
 
@@ -38,6 +38,16 @@ def test_missing_optional_scanners_do_not_break(monkeypatch, tmp_path: Path):
     assert any(item.name == "Semgrep" and not item.available for item in result.availability)
     assert any(item.name == "ATLAS Native" and item.available for item in result.availability)
     assert "ATLAS Native" in result.coverage
+
+
+def test_large_supported_source_file_is_counted_as_skipped(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("atlas.code_scanners.shutil.which", lambda _name: None)
+    target = tmp_path / "large.py"
+    target.write_bytes(b"#" + b"x" * 2_000_000)
+    result = LocalCodeScanners(tmp_path).scan()
+    assert result.files_analyzed == 0
+    assert result.files_skipped_large == 1
+    assert target not in discover_files(tmp_path)
 
 
 def test_native_scanner_never_persists_secret(tmp_path: Path):

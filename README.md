@@ -1,4 +1,4 @@
-# ATLAS v0.1.7
+# ATLAS v0.1.8
 
 ## Painel integrado
 
@@ -49,13 +49,15 @@ outra linha do mesmo arquivo mudou. A seleção dos arquivos continua incrementa
 Findings exibem categoria e confiança estimada. Uma supressão individual requer
 motivo e prazo; ela continua visível no painel com estado `SUPPRESSED`.
 
-## Precisão e estabilidade da v0.1.7
+## Precisão e estabilidade da v0.1.8
 
 - Baseline inicial silenciosa: findings preexistentes começam como EXISTING.
 - Fingerprints usam contexto sanitizado e resistem a inserções em outras linhas.
 - Secrets exigem valor plausível; placeholders, fixtures e dependências são ignorados.
 - Security Score separado por credenciais, rede, containers, host e código.
 - Scans abandonados são recuperados, e a fase atual aparece no painel.
+- Baseline não é reaplicada em cada reinício do Watchdog.
+- Scans incrementais são apresentados como escopo alterado, não como scan completo do projeto.
 
 Para testar esta copia local:
 
@@ -65,8 +67,9 @@ atlas watch "C:\Meu Projeto"
 ```
 
 O Watch nao detecta todos os erros possiveis. As ferramentas opcionais ampliam
-a cobertura; resultados continuam exigindo revisão humana. A v0.1.7 está
-publicada. Veja as limitações detalhadas em `IMPLEMENTATION_REPORT.md`.
+a cobertura; resultados continuam exigindo revisão humana. Consulte a release
+v0.1.8 para o código e o executável. Veja as limitações detalhadas em
+`IMPLEMENTATION_REPORT.md`.
 
 ATLAS is a defensive Security Watchdog for Windows that runs entirely in the
 terminal. It watches a source tree, scans changed code with local tools, and
@@ -82,7 +85,7 @@ watch mode does not call an LLM and does not consume AI tokens.
 
 Quer apenas usar? Baixe o executável pronto na página da release:
 
-**[Baixar ATLAS-Security-Agent.exe — v0.1.7](https://github.com/MarcioConnect/atlas/releases/download/v0.1.7/ATLAS-Security-Agent.exe)**
+**[Baixar ATLAS-Security-Agent.exe — v0.1.8](https://github.com/MarcioConnect/atlas/releases/download/v0.1.8/ATLAS-Security-Agent.exe)**
 
 Depois, no PowerShell:
 
@@ -101,7 +104,7 @@ if ($actual -ne $expected) { throw "ATLAS checksum mismatch" }
 "ATLAS checksum OK"
 ```
 
-The v0.1.7 executable is not Authenticode-signed; Windows may show a publisher
+The v0.1.8 executable is not Authenticode-signed; Windows may show a publisher
 warning. A checksum detects corruption but does not independently prove who
 published the file. See [`docs/SIGNING.md`](docs/SIGNING.md).
 
@@ -210,6 +213,21 @@ python -m pip install ".[python-scanners]"
 The runtime dependency source of truth is `pyproject.toml`.
 
 ## Quick start
+
+Run a one-time project scan without opening the monitoring TUI:
+
+```powershell
+atlas scan
+atlas scan "C:\Meu Projeto"
+atlas scan "C:\Meu Projeto" --format json
+```
+
+The command scans the current directory by default. It lists active findings
+and warns when optional scanners are missing. Source files over 2 MB are skipped
+to bound resource use; they are counted, and the result is marked as partial
+coverage rather than implying the project was fully analyzed.
+
+Start continuous monitoring with the interactive view:
 
 ```powershell
 atlas watch "C:\Meu Projeto"
@@ -346,6 +364,7 @@ This does not involve an LLM or AI tokens.
 
 ```powershell
 atlas                         # native ATLAS dashboard + conversation TUI
+atlas scan [PROJECT]          # análise pontual local; --format json opcional
 atlas agent                   # conversa do agente ATLAS no terminal
 atlas agent --advanced        # exige o chat avançado do ATLAS
 atlas dashboard               # system security dashboard
@@ -389,6 +408,13 @@ is accepted as EXISTING, so only later regressions become NEW. On every scan:
 
 An unavailable scanner has no coverage and therefore cannot accidentally mark
 its older findings as resolved.
+
+Confidence is a rule/context heuristic for triage, not a calibrated probability.
+Missing scanners and eligible source files over 2 MB are shown as coverage gaps;
+they are never described as cleanly analyzed.
+Incremental Watchdog results explicitly cover only changed files and are not
+reported as a complete project scan. The initial baseline is accepted once per
+project; subsequent Watchdog starts still report newly discovered findings.
 
 ## Privacy and safety
 

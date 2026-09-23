@@ -210,6 +210,57 @@ def report(
     console.print(f"[green]Relatório ATLAS criado:[/] {path}")
 
 
+@app.command("scan")
+def scan_project(
+    project: Path = typer.Argument(Path.cwd(), help="Projeto para analisar; padrao: pasta atual."),
+    output_format: str = typer.Option("table", "--format", "-f", help="table ou json."),
+) -> None:
+    """Executa uma análise local única de um projeto, sem abrir a TUI."""
+    from atlas.code_watch import CodeWatchdog
+    from atlas.report import render_json_report
+
+    project = project.expanduser().resolve()
+    if not project.is_dir():
+        raise typer.BadParameter(f"Diretório inexistente: {project}")
+    if output_format.casefold() not in {"table", "json"}:
+        raise typer.BadParameter("Formato deve ser table ou json")
+    database = Database()
+    watchdog = CodeWatchdog(project, database)
+    with console.status("[cyan]ATLAS analisando o projeto com scanners locais...[/cyan]"):
+        watchdog.scan_now(None, baseline=True)
+    if watchdog.state.status == "ERROR":
+        console.print(f"[red]A análise falhou:[/] {watchdog.state.error}")
+        raise typer.Exit(1)
+    if output_format.casefold() == "json":
+        typer.echo(render_json_report(database, project))
+        return
+
+    unavailable = [item for item in watchdog.state.availability if not item.available]
+    partial = bool(unavailable or watchdog.state.files_skipped_large)
+    console.print(
+        f"[bold cyan]ATLAS SCAN[/] · {'COBERTURA PARCIAL' if partial else 'SCANNERS DISPONÍVEIS EXECUTADOS'}"
+    )
+    console.print(f"Projeto: {project}\nArquivos analisados: {watchdog.state.files_analyzed}")
+    console.print(f"Arquivos omitidos por excederem 2 MB: {watchdog.state.files_skipped_large}")
+    for item in unavailable:
+        console.print(f"[yellow]Scanner indisponível: {item.name}[/yellow] · Instalação: {item.install}")
+    findings = [item for item in database.code_findings(str(project)) if item.state != "RESOLVED"]
+    if not findings:
+        console.print("[green]Nenhum finding local detectado.[/] Isso não garante ausência de vulnerabilidades.")
+        return
+    table = Table(title=f"{len(findings)} finding(s) ativo(s)")
+    for column in ("Estado", "Severidade", "Confiança estimada", "Regra", "Arquivo", "Linha", "Descrição", "Scanner"):
+        table.add_column(column)
+    for item in findings:
+        try:
+            relative = str(Path(item.file_path).resolve().relative_to(project))
+        except (OSError, ValueError):
+            relative = Path(item.file_path).name
+        table.add_row(item.state, item.severity, f"{item.confidence}/100", item.rule_id, relative,
+                      str(item.line or "-"), item.description, item.scanner)
+    console.print(table)
+
+
 @app.command()
 def watch(
     project: Path | None = typer.Argument(None, help="Diretorio do projeto; omitido observa todos os caminhos configurados."),

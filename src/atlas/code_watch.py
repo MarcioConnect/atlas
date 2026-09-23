@@ -35,7 +35,9 @@ class WatchState:
     project: Path
     status: str = "STARTING"
     files_analyzed: int = 0
+    files_skipped_large: int = 0
     changes: int = 0
+    scan_scope: str = "FULL"
     last_scan_at: datetime | None = None
     scan_started_at: datetime | None = None
     phase: str = "IDLE"
@@ -213,9 +215,11 @@ class CodeWatchdog:
             return {"NEW": [], "EXISTING": [], "RESOLVED": []}
         scan = None
         try:
+            accept_initial_baseline = baseline and not self.database.has_completed_code_scan(str(self.project))
             trigger = str(changed[0]) if changed else None
             scan = self.database.begin_code_scan(str(self.project), trigger)
             self.state.status = "SCANNING"
+            self.state.scan_scope = "FULL" if changed is None else "INCREMENTAL"
             self.state.phase = "LOCAL_SCANNERS"
             self.state.scan_started_at = datetime.now(UTC)
             self.state.error = ""
@@ -234,7 +238,7 @@ class CodeWatchdog:
             reconciled = self.database.reconcile_code_findings(
                 str(self.project), scan.id, [item.record() for item in local_result.findings], local_result.coverage
             )
-            if baseline:
+            if accept_initial_baseline:
                 self.database.accept_code_baseline(str(self.project))
                 reconciled["EXISTING"].extend(reconciled["NEW"])
                 reconciled["NEW"] = []
@@ -246,6 +250,7 @@ class CodeWatchdog:
             if self.state.new and actively_watching and settings.notifications_enabled and not settings.silent_mode:
                 notify_new_findings(self.project, self.state.new)
             self.state.files_analyzed = local_result.files_analyzed
+            self.state.files_skipped_large = local_result.files_skipped_large
             self.state.availability = local_result.availability
             self.state.last_scan_at = datetime.now(UTC)
             current = self.database.code_findings(str(self.project))
@@ -259,6 +264,7 @@ class CodeWatchdog:
             self.database.finish_code_scan(
                 scan.id, files_analyzed=local_result.files_analyzed, changes=self.state.changes,
                 status=self.state.status, scanners=scanner_json,
+                files_skipped_large=local_result.files_skipped_large,
             )
             return reconciled
         except Exception as exc:

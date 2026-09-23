@@ -1,5 +1,6 @@
 import asyncio
 
+from atlas.code_scanners import ScannerAvailability
 from atlas.database import Database
 from atlas.tui import AtlasApp, DashboardScreen, MainScreen
 from atlas.watch_tui import WatchdogApp, WatchScreen
@@ -35,6 +36,20 @@ def test_watchdog_tui_opens_for_path_with_spaces(monkeypatch, tmp_path):
             assert pilot.app.screen.query_one("#watch-menu").has_focus
 
     asyncio.run(run())
+
+
+def test_watchdog_status_does_not_call_partial_scan_safe(tmp_path):
+    screen = WatchScreen(tmp_path, Database(tmp_path / "partial-tui.sqlite"))
+    screen.watchdog.state.status = "SAFE"
+    screen.watchdog.state.availability = [ScannerAvailability("Semgrep", False, "install semgrep")]
+    assert "PARTIAL COVERAGE" in screen._status()
+
+
+def test_watchdog_status_limits_incremental_clean_claim(tmp_path):
+    screen = WatchScreen(tmp_path, Database(tmp_path / "incremental-tui.sqlite"))
+    screen.watchdog.state.status = "SAFE"
+    screen.watchdog.state.scan_scope = "INCREMENTAL"
+    assert "CHANGED SCOPE" in screen._status()
 
 
 def test_dashboard_menu_accepts_keyboard_selection(monkeypatch):

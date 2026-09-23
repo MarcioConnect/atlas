@@ -180,6 +180,8 @@ def test_oversized_file_is_not_falsely_marked_resolved(tmp_path, monkeypatch):
     target.write_text('eval(user_input)\n#' + 'x' * 2_000_000)
     result = watcher.scan_now([target])
     assert not any(f.rule_id == 'python-eval' for f in result['RESOLVED'])
+    assert watcher.state.files_skipped_large == 1
+    assert watcher.database.latest_code_scan(str(tmp_path)).files_skipped_large == 1
 
 
 def test_initial_baseline_does_not_report_preexisting_findings_as_new(tmp_path: Path):
@@ -192,6 +194,24 @@ def test_initial_baseline_does_not_report_preexisting_findings_as_new(tmp_path: 
     assert result["NEW"] == []
     assert len(result["EXISTING"]) == 1
     assert watcher.database.code_findings(str(project), "NEW") == []
+
+
+def test_baseline_is_not_reaccepted_on_later_startup_scan(tmp_path: Path):
+    project = tmp_path / "baseline-repeat"
+    project.mkdir()
+    (project / "app.py").write_text("pass", encoding="utf-8")
+    first = issue(project)
+    later = NormalizedFinding("HIGH", "Test", "NEW_RULE", str(project / "app.py"), 9,
+                              "New issue", "safe evidence", "Fix")
+    SequenceScanner.batches = [[first], [first, later]]
+    database = Database(tmp_path / "baseline-repeat.sqlite")
+    watcher = CodeWatchdog(project, database, scanner_factory=SequenceScanner)
+
+    watcher.scan_now(None, baseline=True)
+    result = watcher.scan_now(None, baseline=True)
+
+    assert [item.rule_id for item in result["NEW"]] == ["NEW_RULE"]
+    assert database.has_completed_code_scan(str(project))
 
 
 def test_ai_enabled_watch_does_not_review_or_send_findings_automatically(tmp_path: Path, monkeypatch):

@@ -2,7 +2,12 @@ from datetime import UTC, datetime
 
 from atlas.database import Database
 from atlas.models import CodeFinding, Finding, MonitorEvent, Scan
-from atlas.report import generate_html_report, generate_json_report, generate_markdown_report
+from atlas.report import (
+    generate_html_report,
+    generate_json_report,
+    generate_markdown_report,
+    render_json_report,
+)
 
 
 def test_report_contains_system_and_watchdog_findings(tmp_path):
@@ -73,8 +78,42 @@ def test_json_report_includes_coverage_lifecycle_and_redacted_evidence(tmp_path)
     payload = json.loads(output.read_text(encoding="utf-8"))
     item = payload["projects"][0]["findings"][0]
     assert item["category"] == "credentials" and item["confidence"] == 91
-    assert payload["projects"][0]["scan"]["complete"] is True
+    assert payload["projects"][0]["scan"]["complete"] is False
     assert payload["projects"][0]["scan"]["unavailable_scanners"] == ["Semgrep"]
+    assert payload["projects"][0]["scan"]["coverage_gaps"] == ["Optional scanner unavailable: Semgrep"]
+
+
+def test_report_marks_large_file_skips_as_incomplete_coverage(tmp_path):
+    import json
+
+    db = Database(tmp_path / "partial.sqlite")
+    project = (tmp_path / "Project").resolve()
+    scan = db.begin_code_scan(str(project))
+    db.finish_code_scan(scan.id, files_analyzed=2, files_skipped_large=1, changes=1, status="SAFE",
+                        scanners='[{"name":"ATLAS Native","available":true}]')
+    payload = json.loads(render_json_report(db, project))
+    coverage = payload["projects"][0]["scan"]
+    assert coverage["complete"] is False
+    assert coverage["files_skipped_large"] == 1
+    assert coverage["coverage_gaps"] == ["1 eligible source file(s) exceeded the 2 MB limit"]
+
+
+def test_incremental_scan_is_not_reported_as_project_complete(tmp_path):
+    import json
+
+    db = Database(tmp_path / "incremental.sqlite")
+    project = (tmp_path / "Project").resolve()
+    scan = db.begin_code_scan(str(project), str(project / "app.py"))
+    db.finish_code_scan(scan.id, files_analyzed=1, changes=1, status="SAFE",
+                        scanners='[{"name":"ATLAS Native","available":true}]')
+
+    result = json.loads(render_json_report(db, project))["projects"][0]["scan"]
+
+    assert result["scope"] == "incremental"
+    assert result["complete"] is False
+    assert result["coverage_gaps"] == [
+        "Incremental scan covers changed files only; project-wide coverage was not refreshed"
+    ]
 
 
 def test_html_report_escapes_untrusted_finding_text(tmp_path):

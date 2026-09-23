@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -196,9 +197,21 @@ class AtlasPanel(App):
             f"Cred {domains['credentials']} · Rede {domains['network']} · Host {domains['host']}"
             if domains else "Execute Security Scan para medir o host."
         )
+        coverage_rows = []
+        if current_scan:
+            try:
+                parsed_coverage = json.loads(current_scan.scanners or "[]")
+                coverage_rows = [row for row in parsed_coverage if isinstance(row, dict)] if isinstance(parsed_coverage, list) else []
+            except (TypeError, ValueError):
+                coverage_rows = []
+        unavailable_count = sum(not row.get("available") for row in coverage_rows)
+        coverage_status = "PARCIAL" if unavailable_count or (current_scan and current_scan.files_skipped_large) else "LOCAL"
+        scan_scope = "incremental" if current_scan and current_scan.trigger_file else "full"
         self.query_one("#overview", Static).update(
             f"Projeto: {self.project.name}\nSecurity Score: {score}\n{domain_line}\n\n"
             f"Arquivos no último scan: {current_scan.files_analyzed if current_scan else 0}\n"
+            f"Escopo do último scan: {scan_scope}\n"
+            f"Cobertura: {coverage_status} · omitidos (>2 MB): {current_scan.files_skipped_large if current_scan else 0} · scanners ausentes: {unavailable_count}\n"
             f"Findings ativos: {len(findings)}\nWatch: {self.watchdog.state.status}{elapsed}\n"
             f"Revisão IA: {'ATIVA' if self.watchdog.ai_enabled else 'DESLIGADA'}\n"
             + (f"Último scan: {current_scan.started_at.astimezone():%d/%m %H:%M}" if current_scan else

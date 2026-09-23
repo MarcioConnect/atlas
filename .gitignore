@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .pytest-local/
 /.pytest-atlas-*/
+/.pytest-coverage-*/
 /.pytest-baseline-atlas/
 /.pytest-v*/
 .ci-temp/

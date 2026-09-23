@@ -63,7 +63,8 @@ def _summary_markdown(summary: dict[str, int]) -> list[str]:
         f"- **Findings totais:** `{summary['total']}` (novos: `{summary['new']}`, existentes: `{summary['existing']}`, suprimidos: `{summary['suppressed']}`, resolvidos: `{summary['resolved']}`)",
         f"- **Severidades:** CRITICAL `{summary['critical']}` · HIGH `{summary['high']}` · MEDIUM `{summary['medium']}` · LOW `{summary['low']}` · INFO `{summary['info']}`",
         f"- **Score por domínio:** credenciais {summary['credentials']} · rede {summary['network']} · containers {summary['containers']} · host {summary['host']} · código {summary['code']}",
-        "- **Interpretação:** o score considera causas únicas por domínio e limita repetições; findings são sinais para revisão, não prova automática de comprometimento.", "",
+        "- **Interpretação:** o score considera causas únicas por domínio e limita repetições; findings são sinais para revisão, não prova automática de comprometimento.",
+        "- **Confiança:** estimativa heurística baseada em regra/contexto; não é probabilidade calibrada.", "",
     ]
 
 
@@ -87,7 +88,7 @@ def _section_findings(title: str, findings: Iterable[object]) -> list[str]:
         recommendation = _safe(getattr(item, "recommendation", "-"))
         category = _safe(getattr(item, "category", "system"))
         confidence = getattr(item, "confidence", None)
-        confidence_label = f" · confiança {max(0, min(100, int(confidence)))}%" if confidence is not None else ""
+        confidence_label = f" · confiança heurística estimada {max(0, min(100, int(confidence)))}%" if confidence is not None else ""
         state = getattr(item, "state", None)
         state_label = f" · {_safe(state)}" if state else ""
         lines.extend([
@@ -167,6 +168,8 @@ def render_report(database: Database, project_path: Path | None = None, now: dat
             "",
             f"- Último scan: `{_date(code_scan.completed_at)}`",
             f"- Arquivos analisados: `{code_scan.files_analyzed}`",
+            f"- Arquivos de código ignorados pelo limite de 2 MB: `{code_scan.files_skipped_large}`",
+            f"- Escopo: `{'incremental (somente arquivos alterados)' if code_scan.trigger_file else 'projeto completo'}`",
             f"- Alterações: `{code_scan.changes}`",
             f"- Status: `{_safe(code_scan.status)}`",
             "",
@@ -305,13 +308,28 @@ def render_json_report(database: Database, project_path: Path | None = None, now
                 "started_at": scan.started_at.isoformat() if scan.started_at else None,
                 "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,
                 "files_analyzed": scan.files_analyzed,
+                "files_skipped_large": scan.files_skipped_large,
+                "scope": "incremental" if scan.trigger_file else "full",
                 "changes": scan.changes,
                 "coverage": coverage,
-                "complete": bool(scan.completed_at and scan.status in {"SAFE", "FINDINGS"}
-                                 and any(isinstance(row, dict) and row.get("name") == "ATLAS Native"
-                                         and row.get("available") for row in coverage)),
+                "complete": bool(
+                    scan.completed_at and scan.status in {"SAFE", "FINDINGS"}
+                    and scan.trigger_file is None
+                    and scan.files_skipped_large == 0
+                    and not any(isinstance(row, dict) and not row.get("available") for row in coverage)
+                    and any(isinstance(row, dict) and row.get("name") == "ATLAS Native"
+                            and row.get("available") for row in coverage)
+                ),
                 "unavailable_scanners": [row.get("name") for row in coverage
                                          if isinstance(row, dict) and not row.get("available")],
+                "coverage_gaps": (
+                    [f"{scan.files_skipped_large} eligible source file(s) exceeded the 2 MB limit"]
+                    if scan.files_skipped_large else []
+                ) + [
+                    f"Optional scanner unavailable: {row.get('name')}" for row in coverage
+                    if isinstance(row, dict) and not row.get("available")
+                ] + (["Incremental scan covers changed files only; project-wide coverage was not refreshed"]
+                     if scan.trigger_file else []),
             } if scan else None),
             "findings": [_finding_payload(item) for item in findings],
         })
@@ -327,7 +345,7 @@ def render_json_report(database: Database, project_path: Path | None = None, now
             "findings": [_finding_payload(item) for item in system.findings],
         } if system else None),
         "projects": project_data,
-        "limitation": "A clean or incomplete scan does not guarantee absence of vulnerabilities.",
+        "limitation": "A clean or incomplete scan does not guarantee absence of vulnerabilities. Confidence values are heuristic, not calibrated probabilities.",
     }, ensure_ascii=False, indent=2)
 
 

@@ -86,8 +86,9 @@ class WatchScreen(Screen):
     def _state_key(self) -> tuple:
         state = self.watchdog.state
         return (
-            self.current_view, state.status, state.files_analyzed, state.changes,
-            state.last_scan_at, tuple(item.id for item in state.new),
+            self.current_view, state.status, state.scan_scope, state.files_analyzed, state.files_skipped_large, state.changes,
+            state.last_scan_at, tuple((item.name, item.available) for item in state.availability),
+            tuple(item.id for item in state.new),
             tuple(item.id for item in state.resolved), tuple(item.name for item in state.availability),
         )
 
@@ -124,7 +125,7 @@ class WatchScreen(Screen):
         await body.mount(Static(
             f"[{SEVERITY_STYLE.get(item.severity, '')}]{item.severity}[/] · {item.state}\n\n"
             f"[b]Scanner[/b] {item.scanner}\n[b]Rule[/b] {item.rule_id}\n"
-            f"[b]Category[/b] {item.category} · [b]Confidence[/b] {item.confidence}%\n"
+            f"[b]Category[/b] {item.category} · [b]Estimated heuristic confidence[/b] {item.confidence}%\n"
             + (f"[b]Suppression[/b] {item.suppression_reason}\n" if item.suppressed else "")
             + f"[b]File[/b] {self._relative(item.file_path)}:{item.line or '-'}\n\n"
             f"[b]Description[/b]\n{item.description}\n\n[b]Evidence[/b]\n{item.evidence}\n\n"
@@ -172,8 +173,17 @@ class WatchScreen(Screen):
 
     def _status(self) -> str:
         status = self.watchdog.state.status
+        partial = bool(
+            self.watchdog.state.files_skipped_large
+            or any(not item.available for item in self.watchdog.state.availability)
+        )
         labels = {
-            "WATCHING": "● WATCHING", "SCANNING": "● SCANNING", "SAFE": "● SAFE",
+            "WATCHING": "● WATCHING", "SCANNING": "● SCANNING",
+            "SAFE": (
+                "⚠ NO FINDINGS · PARTIAL COVERAGE" if partial else
+                "● NO FINDINGS IN CHANGED SCOPE" if self.watchdog.state.scan_scope == "INCREMENTAL" else
+                "● NO FINDINGS · FULL SCAN"
+            ),
             "FINDINGS": "⚠ FINDINGS", "STOPPED": "○ STOPPED", "ERROR": "⚠ ERROR", "STARTING": "● STARTING",
         }
         return labels.get(status, status)
@@ -192,7 +202,11 @@ class WatchScreen(Screen):
             Static(
                 f"[b cyan]ATLAS WATCHDOG[/b cyan]                     [b]{self._status()}[/b]\n\n"
                 f"[b]Watching[/b]\n{self.project}\n\n"
+                f"Scan scope: {state.scan_scope.lower()}\n"
                 f"Files analyzed: {state.files_analyzed}    Changes: {state.changes}    Active findings: {len(active)}\n"
+                f"Coverage gaps: {state.files_skipped_large} large file(s), "
+                f"{sum(not item.available for item in state.availability)} unavailable scanner(s)\n"
+                "Keys: W monitor · S scan · Enter details · A request AI review (with --ai)\n"
                 f"Last scan: {self._age()}", classes="watch-panel",
             ),
             *self._finding_widgets(self.database.code_findings(str(self.project), "NEW", 8), "NEW FINDINGS"),
@@ -209,7 +223,8 @@ class WatchScreen(Screen):
         )
         return [Static(
             f"[b]Status[/b] {self._status()}\n[b]Path[/b] {self.project}\n"
-            f"[b]Debounce[/b] {self.watchdog.debounce_seconds:.1f}s\n[b]Last scan[/b] {self._age()}\n\n"
+            f"[b]Debounce[/b] {self.watchdog.debounce_seconds:.1f}s\n[b]Last scan[/b] {self._age()}\n"
+            f"[b]Skipped (>2 MB)[/b] {state.files_skipped_large}\n\n"
             f"{tools or 'All configured scanners are available.'}", classes="watch-panel",
         )]
 
@@ -219,7 +234,7 @@ class WatchScreen(Screen):
             return [Static(f"[b]{title}[/b]\nNone", classes="watch-panel")]
         table = DataTable(zebra_stripes=True, classes="watch-panel")
         table.cursor_type = "row"
-        table.add_columns("State", "Severity", "Confidence", "Category", "File", "Line", "Description", "Scanner")
+        table.add_columns("State", "Severity", "Est. confidence", "Category", "File", "Line", "Description", "Scanner")
         for item in findings:
             table.add_row(
                 item.state, f"[{SEVERITY_STYLE.get(item.severity, '')}]{item.severity}[/]", f"{item.confidence}%", item.category,
@@ -243,6 +258,8 @@ class WatchScreen(Screen):
         if scan:
             detail = (
                 f"Status: {scan.status}\nFiles analyzed: {scan.files_analyzed}\nChanges: {scan.changes}\n"
+                f"Scope: {'incremental' if scan.trigger_file else 'full'}\n"
+                f"Files skipped (>2 MB): {scan.files_skipped_large}\n"
                 f"Completed: {scan.completed_at.astimezone():%d/%m/%Y %H:%M:%S}" if scan.completed_at else "Scanning now..."
             )
         return [Static(detail + "\n\nPress [b]S[/b] for a full manual scan.", classes="watch-panel")]
@@ -334,7 +351,7 @@ class MultiWatchScreen(Screen):
     async def refresh_view(self) -> None:
         rows = [(project, watcher.state) for project, watcher in self.manager.watchdogs.items()]
         key = tuple(
-            (str(project), state.status, state.files_analyzed, state.changes, state.last_scan_at,
+            (str(project), state.status, state.files_analyzed, state.files_skipped_large, state.changes, state.last_scan_at,
              tuple(item.id for item in state.new), tuple(item.id for item in state.resolved))
             for project, state in rows
         )
@@ -346,17 +363,20 @@ class MultiWatchScreen(Screen):
         total_new = 0
         for _, state in rows:
             total_new += len(state.new)
-        status = "⚠ FINDINGS" if total_new else "● WATCHING"
+        gaps = sum(bool(state.files_skipped_large or any(not item.available for item in state.availability))
+                   for _, state in rows)
+        status = "⚠ FINDINGS" if total_new else ("⚠ PARTIAL COVERAGE" if gaps else "● WATCHING")
         await body.mount(Static(
             f"[b cyan]ATLAS MULTI-PROJECT WATCHDOG[/b cyan]   [b]{status}[/b]\n\n"
-            f"Projetos: {len(rows)}    Findings novos: {total_new}\n"
+            f"Projetos: {len(rows)}    Findings novos: {total_new}    Projetos com cobertura parcial: {gaps}\n"
             "Todas as análises são locais e read-only.", classes="watch-panel",
         ))
         table = DataTable(zebra_stripes=True, classes="watch-panel")
-        table.add_columns("Projeto", "Status", "Arquivos", "Alterações", "Novos", "Último scan")
+        table.add_columns("Projeto", "Status", "Arquivos", "Omitidos >2MB", "Alterações", "Novos", "Último scan")
         for project, state in rows:
             last = state.last_scan_at.astimezone().strftime("%d/%m/%Y %H:%M:%S") if state.last_scan_at else "-"
-            table.add_row(project.name, state.status, str(state.files_analyzed), str(state.changes), str(len(state.new)), last)
+            table.add_row(project.name, state.status, str(state.files_analyzed), str(state.files_skipped_large),
+                          str(state.changes), str(len(state.new)), last)
         await body.mount(table)
         findings = [item for _, state in rows for item in state.new]
         if findings:

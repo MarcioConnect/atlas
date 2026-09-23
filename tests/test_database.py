@@ -58,3 +58,34 @@ def test_database_additively_migrates_legacy_code_findings(tmp_path: Path):
         row = connection.execute("SELECT category, confidence, suppressed, suppression_reason FROM code_findings").fetchone()
     assert {"category", "confidence", "suppressed", "suppression_reason"}.issubset(columns)
     assert row == ("code", 70, 0, "")
+
+
+def test_database_additively_migrates_legacy_code_scans(tmp_path: Path):
+    path = tmp_path / "legacy-scans.sqlite"
+    with sqlite3.connect(path) as connection:
+        connection.execute("""CREATE TABLE code_scans (
+            id INTEGER PRIMARY KEY, project_path TEXT NOT NULL, started_at DATETIME NOT NULL,
+            completed_at DATETIME, trigger_file TEXT, files_analyzed INTEGER NOT NULL DEFAULT 0,
+            changes INTEGER NOT NULL DEFAULT 0, status VARCHAR(20) NOT NULL DEFAULT 'SCANNING',
+            scanners TEXT NOT NULL DEFAULT ''
+        )""")
+        connection.execute("""INSERT INTO code_scans
+            (project_path, started_at, files_analyzed, status)
+            VALUES ('project', CURRENT_TIMESTAMP, 4, 'SAFE')""")
+    Database(path)
+    with sqlite3.connect(path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(code_scans)")}
+        row = connection.execute("SELECT files_analyzed, files_skipped_large FROM code_scans").fetchone()
+    assert "files_skipped_large" in columns
+    assert row == (4, 0)
+
+
+def test_successfully_completed_stopped_scan_still_anchors_baseline(tmp_path: Path):
+    database = Database(tmp_path / "stopped.sqlite")
+    project = str((tmp_path / "project").resolve())
+    scan = database.begin_code_scan(project)
+
+    database.finish_code_scan(scan.id, files_analyzed=1, changes=0, status="STOPPED",
+                               scanners='[{"name":"ATLAS Native","available":true}]')
+
+    assert database.has_completed_code_scan(project)

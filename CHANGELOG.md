@@ -2,6 +2,30 @@
 
 All notable changes to ATLAS are documented in this file.
 
+## [0.1.8] - 2026-09-23
+
+- Add `atlas scan [PROJECT]` for a one-shot project review and JSON output.
+- Persist and report source files skipped by the 2 MB limit; mark unavailable scanners as explicit coverage gaps in reports and the Watchdog UI.
+- Identify incremental scans as changed-file-only so reports and the UI do not imply a whole-project scan; accept a project baseline only once, not on every Watchdog restart.
+- Label finding confidence as heuristic rather than calibrated probability.
+- Fix the manually triggered Windows release workflow input schema.
+
+## [0.1.7] - 2026-09-22
+
+- Add finding category/confidence metadata, expiring reasoned suppressions, and JSON report export.
+- Require an explicit finding selection before any Watchdog Ollama review; harden multi-watch startup and stop-during-scan state.
+- Add optional local YARA scans, SHA-256/Authenticode executable inspection, and read-only startup persistence snapshots.
+- Add additive SQLite migration coverage, bounded source-file reads, Windows CI matrix, CodeQL and Dependabot configuration.
+- Document privacy, threat model, permission boundaries, and artifact signing/integrity limitations.
+- Add automatic project-scoped source retrieval, content search, line windows and sanitized memory caching.
+- Add per-project conversational context, source coverage, `/context`, `/clear`, and persistent `/ai on|off` for panel scans.
+- Respect `atlas agent --model` for the local assistant and optional Watch review.
+- Fix false resolution of existing findings after unrelated edits; only claim coverage for readable files.
+- Reduce credential false positives in Python comments, environment lookups and placeholders; support quoted JSON keys.
+- Distinguish privileged Docker configuration from verified running containers.
+- Reject Ollama redirects, bypass HTTP proxies for loopback requests, and handle malformed model responses.
+- Preserve source line numbers while redacting multiline credentials; exclude Windows reparse points from traversal.
+
 ## [0.1.6] - 2026-09-19
 
 - Reduce secret and local-port false positives using contextual validation, placeholders and test-fixture exclusions.
@@ -24,22 +48,6 @@ All notable changes to ATLAS are documented in this file.
 - Add `/context`, `/clear`, `/ai on` and `/ai off` to the integrated panel.
 - Preserve active findings after unrelated edits and reduce credential, Docker and dependency false positives.
 - Harden local model transport, Windows reparse point traversal and malformed model responses.
-
-## [0.1.7] - 2026-09-22
-
-- Add finding category/confidence metadata, expiring reasoned suppressions, and JSON report export.
-- Require an explicit finding selection before any Watchdog Ollama review; harden multi-watch startup and stop-during-scan state.
-- Add optional local YARA scans, SHA-256/Authenticode executable inspection, and read-only startup persistence snapshots.
-- Add additive SQLite migration coverage, bounded source-file reads, Windows CI matrix, CodeQL and Dependabot configuration.
-- Document privacy, threat model, permission boundaries, and artifact signing/integrity limitations.
-- Add automatic project-scoped source retrieval, content search, line windows and sanitized memory caching.
-- Add per-project conversational context, source coverage, `/context`, `/clear`, and persistent `/ai on|off` for panel scans.
-- Respect `atlas agent --model` for the local assistant and optional Watch review.
-- Fix false resolution of existing findings after unrelated edits; only claim coverage for readable files.
-- Reduce credential false positives in Python comments, environment lookups and placeholders; support quoted JSON keys.
-- Distinguish privileged Docker configuration from verified running containers.
-- Reject Ollama redirects, bypass HTTP proxies for loopback requests, and handle malformed model responses.
-- Preserve source line numbers while redacting multiline credentials; exclude Windows reparse points from traversal.
 
 ## [Unreleased]
 
