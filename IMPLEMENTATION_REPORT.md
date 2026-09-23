@@ -1,9 +1,9 @@
 # ATLAS implementation report
 
-Status: preparing v0.1.8 from the public v0.1.7 release. The v0.1.7 release
-contains the Windows executable and SHA-256 sidecar; no PyPI package was
-uploaded. The v0.1.8 release should remain a draft until its Windows build and
-checksum have been validated.
+Status: v0.1.8 source candidate is pushed to `main`; the public v0.1.7 release
+contains the previous Windows executable and SHA-256 sidecar. The v0.1.8 release
+is not public yet. Its Windows build and checksum must pass before publication;
+no PyPI package is being uploaded.
 
 The v0.1.8 candidate adds a one-shot `atlas scan` command,
 persists coverage gaps for source files skipped by the 2 MB limit, distinguishes
@@ -50,14 +50,14 @@ project security documentation.
 - `py -m ruff check src tests tools` — passed.
 - `py -m compileall -q src tests tools` — passed.
 - `git diff --check` — passed (Git emitted only line-ending conversion notices).
-- CLI smoke checks: `py -m atlas --version`, and `report`, `malware`, and
-  `config` help — passed; the v0.1.7 release reported version 0.1.7.
+- CLI smoke checks for the v0.1.8 candidate: version, `scan`, `security`,
+  `report`, `watch`, `monitor`, and `agent` help — passed; version reports 0.1.8.
 - `py -m build` — wheel and source distribution built successfully.
 - `py -m twine check` on both built artifacts — passed.
-- GitHub Actions for commit `8b149c2` — CI matrix and CodeQL succeeded; inspection
-  found the manual release workflow failed before starting jobs due to an invalid
-  `workflow_dispatch` input schema. The schema is corrected locally below but has
-  not yet been pushed or revalidated remotely.
+- Historical GitHub Actions for `8b149c2`: CI matrix and CodeQL passed, but the
+  manually triggered release workflow failed before starting jobs due to an
+  invalid `workflow_dispatch` input schema. The schema fix is included in v0.1.8;
+  the v0.1.8 executable-upload workflow still needs a successful run.
 - Regression suite includes temp-directory filesystem watcher/debounce/lifecycle,
   Windows paths with spaces, optional scanner absence, redaction, migration,
   concurrent-start rollback, reporting and security helper tests. Platform
@@ -67,14 +67,15 @@ project security documentation.
 ### Current local follow-up validation
 
 - Full pytest suite (`-p no:cacheprovider -o addopts='' -q`) — 136 passed in
-  64.40 seconds on Windows with Python 3.14 (temporary files outside the repo).
+  65.77 seconds on Windows with Python 3.14 (temporary files outside the repo).
 - Focused regression set — 42 passed in 20.73 seconds.
 - `py -m ruff check src tests tools`, `py -m compileall -q src tests tools`,
-  `py -m atlas scan --help`, and `git diff --check` — passed.
+  `py -m build --no-isolation`, `py -m twine check` for v0.1.8 wheel/sdist, and
+  `git diff --check` — passed.
 - The new `atlas scan` table/JSON flows, skipped-large-file coverage, additive
   SQLite migration, incremental-scan scope, one-time baseline acceptance, and
-  partial-coverage UI state are covered by regression tests. These changes remain
-  local and have not been validated by remote CI.
+  partial-coverage UI state are covered by regression tests. GitHub CI passed
+  on commit `f80db87` across Python 3.11–3.14 and package checks; CodeQL passed.
 
 No before/after performance benchmark was recorded. Streaming source context and
 file-size limits reduce memory exposure by design, but no numerical speedup is
@@ -102,9 +103,9 @@ claimed. The full test result is not proof that ATLAS is vulnerability-free.
 - No Authenticode signing certificate or signing process is configured. The
   release workflow can generate a SHA-256 sidecar; no automatic updater,
   installer, or secure update-verification client was added.
-- Dependabot, CodeQL, and Python 3.11–3.14 Windows CI are configured; CI/CodeQL
-  passed on the v0.1.7 main commit, but the current local
-  follow-up change has not yet run on the remote matrix.
+- Dependabot, CodeQL, and Python 3.11–3.14 Windows CI are configured. CI and
+  CodeQL passed on the v0.1.8 source commit; the docs-only report update does not
+  change the tested application code.
 - Authenticode signing is still unavailable because there is no legitimate
   signing certificate configured; the executable is not claimed to be signed.
 
