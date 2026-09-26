@@ -2,9 +2,9 @@
 
 ## Precision and scan-health pass (2026-09-25, v0.1.9)
 
-This section describes the v0.1.9 source and release candidate. The published
-v0.1.8 information below is historical; release artifact validation is tracked
-separately from the code and test results in this report.
+This section describes the published v0.1.9 source and Windows release. The
+v0.1.8 information below is historical. The public release includes the Windows
+executable and SHA-256 sidecar; it is not Authenticode-signed.
 
 ### Extended deterministic validation (2026-09-25)
 
@@ -21,8 +21,11 @@ separately from the code and test results in this report.
   83.75 seconds (Python 3.14 on this Windows machine). Ruff, compileall, and
   `git diff --check` also passed.
 - After the v0.1.9 launcher and CLI-help wording changes, the complete local
-  suite passed 2,745 tests in 80.62 seconds. The built executable and GitHub
-  Actions matrix are validated separately from this test count.
+  suite passed 2,745 tests in 80.62 seconds. GitHub Actions passed on Python
+  3.11–3.14, package validation, and CodeQL. The Windows release workflow passed.
+- Downloaded release executable reports version, FileVersion, and ProductVersion
+  `0.1.9`; its SHA-256 matched the published sidecar:
+  `1ce6746b0174af96d9d8816f2599232cc14737a47650e136ae406f5ed4556bbd`.
 - These samples are synthetic and deterministic. The earlier 9-case fixture
   precision/recall/F1 figures remain fixture-only; neither test volume nor a
   zero-failure result establishes field accuracy or absence of vulnerabilities.
@@ -66,8 +69,9 @@ separately from the code and test results in this report.
   TP=3, FP=0, TN=6, FN=0; precision=recall=F1=1.0 **only on these nine
   fixtures**. This is not a field accuracy estimate.
 - `py -m ruff check src tests tools`, `py -m compileall -q src tests tools`,
-  `git diff --check`, and CLI help smoke check passed. No release executable
-  or independent clean-machine run was produced in this local pass.
+  `git diff --check`, and CLI help smoke check passed. The published executable
+  was checked locally for version metadata, startup, help output, and checksum;
+  this was not an independent clean-machine installation test.
 
 ### Partial or not implemented
 
