@@ -39,6 +39,7 @@ class Finding(Base):
     check_id: Mapped[str] = mapped_column(String(100), index=True)
     title: Mapped[str] = mapped_column(String(255))
     severity: Mapped[str] = mapped_column(String(10), index=True)
+    confidence: Mapped[int] = mapped_column(Integer, default=70)
     evidence: Mapped[str] = mapped_column(Text)
     risk: Mapped[str] = mapped_column(Text)
     component: Mapped[str] = mapped_column(String(255))
@@ -103,8 +104,10 @@ class CodeScan(Base):
     trigger_file: Mapped[str | None] = mapped_column(Text, nullable=True)
     files_analyzed: Mapped[int] = mapped_column(Integer, default=0)
     files_skipped_large: Mapped[int] = mapped_column(Integer, default=0)
+    files_skipped_unreadable: Mapped[int] = mapped_column(Integer, default=0)
     changes: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(20), default="SCANNING", index=True)
+    health: Mapped[str] = mapped_column(String(32), default="UNKNOWN")
     scanners: Mapped[str] = mapped_column(Text, default="")
 
 

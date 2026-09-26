@@ -28,16 +28,33 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.engine = create_engine(f"sqlite:///{self.path}", future=True, connect_args={"timeout": 30})
         Base.metadata.create_all(self.engine)
+        self._migrate_system_findings()
         self._migrate_code_findings()
         self._migrate_code_scans()
+
+    def _migrate_system_findings(self) -> None:
+        columns = {item["name"] for item in inspect(self.engine).get_columns("findings")}
+        if "confidence" not in columns:
+            with self.engine.begin() as connection:
+                connection.execute(text(
+                    "ALTER TABLE findings ADD COLUMN confidence INTEGER NOT NULL DEFAULT 70"
+                ))
 
     def _migrate_code_scans(self) -> None:
         """Add scan coverage counters without replacing user history."""
         columns = {item["name"] for item in inspect(self.engine).get_columns("code_scans")}
-        if "files_skipped_large" not in columns:
-            with self.engine.begin() as connection:
+        with self.engine.begin() as connection:
+            if "files_skipped_large" not in columns:
                 connection.execute(text(
                     "ALTER TABLE code_scans ADD COLUMN files_skipped_large INTEGER NOT NULL DEFAULT 0"
+                ))
+            if "health" not in columns:
+                connection.execute(text(
+                    "ALTER TABLE code_scans ADD COLUMN health VARCHAR(32) NOT NULL DEFAULT 'UNKNOWN'"
+                ))
+            if "files_skipped_unreadable" not in columns:
+                connection.execute(text(
+                    "ALTER TABLE code_scans ADD COLUMN files_skipped_unreadable INTEGER NOT NULL DEFAULT 0"
                 ))
 
     def _migrate_code_findings(self) -> None:
@@ -126,7 +143,8 @@ class Database:
 
     def finish_code_scan(
         self, scan_id: int, *, files_analyzed: int, changes: int, status: str, scanners: str,
-        files_skipped_large: int = 0,
+        files_skipped_large: int = 0, files_skipped_unreadable: int = 0,
+        health: str = "UNKNOWN",
     ) -> CodeScan | None:
         with self.session() as db:
             scan = db.get(CodeScan, scan_id)
@@ -135,8 +153,10 @@ class Database:
             scan.completed_at = utcnow()
             scan.files_analyzed = files_analyzed
             scan.files_skipped_large = max(0, files_skipped_large)
+            scan.files_skipped_unreadable = max(0, files_skipped_unreadable)
             scan.changes = changes
             scan.status = status
+            scan.health = health
             scan.scanners = scanners
             db.commit()
             return scan
@@ -182,12 +202,25 @@ class Database:
                 query = query.where(CodeFinding.state == state)
             return list(db.scalars(query.order_by(desc(CodeFinding.last_seen)).limit(limit)))
 
+    def mark_code_findings_unverified(self, project_path: str, scan_id: int) -> None:
+        """Preserve unresolved findings when an entire scan fails unexpectedly."""
+        with self.session() as db:
+            for item in db.scalars(select(CodeFinding).where(
+                CodeFinding.project_path == project_path, CodeFinding.state != "RESOLVED",
+            )):
+                item.state = "UNVERIFIED"
+                item.resolved_at = None
+                item.last_scan_id = scan_id
+            db.commit()
+
     def reconcile_code_findings(
         self,
         project_path: str,
         scan_id: int,
         findings: list[dict],
         coverage: dict[str, set[str] | None],
+        scanner_statuses: dict[str, str] | None = None,
+        full_scan: bool = False,
     ) -> dict[str, list[CodeFinding]]:
         """Reconcile one scan without resolving findings outside its measured scope.
 
@@ -195,13 +228,10 @@ class Database:
         contains normalized absolute paths actually inspected by that scanner.
         """
         now = utcnow()
-        result: dict[str, list[CodeFinding]] = {"NEW": [], "EXISTING": [], "RESOLVED": [], "SUPPRESSED": []}
+        result: dict[str, list[CodeFinding]] = {
+            "NEW": [], "EXISTING": [], "RESOLVED": [], "SUPPRESSED": [], "UNVERIFIED": [],
+        }
         with self.session() as db:
-            db.execute(
-                update(CodeFinding)
-                .where(CodeFinding.project_path == project_path, CodeFinding.state == "NEW")
-                .values(state="EXISTING")
-            )
             existing = {
                 item.fingerprint: item
                 for item in db.scalars(select(CodeFinding).where(CodeFinding.project_path == project_path))
@@ -237,11 +267,26 @@ class Database:
                 covered = item.scanner in coverage and (
                     scanner_scope is None or str(Path(item.file_path).resolve()).casefold() in scanner_scope
                 )
-                if covered:
+                run_status = (scanner_statuses or {}).get(item.scanner)
+                removed_in_full_scope = False
+                if full_scan and run_status == "SUCCESS" and item.scanner in coverage:
+                    old_path = Path(item.file_path)
+                    try:
+                        old_path.stat()
+                    except FileNotFoundError:
+                        removed_in_full_scope = old_path.resolve().is_relative_to(Path(project_path).resolve())
+                    except OSError:
+                        pass
+                if (covered or removed_in_full_scope) and run_status == "SUCCESS":
                     item.state = "RESOLVED"
                     item.resolved_at = now
                     item.last_scan_id = scan_id
                     result["RESOLVED"].append(item)
+                elif run_status != "SUCCESS":
+                    item.state = "UNVERIFIED"
+                    item.last_scan_id = scan_id
+                    item.resolved_at = None
+                    result["UNVERIFIED"].append(item)
             db.commit()
             for values in result.values():
                 for item in values:

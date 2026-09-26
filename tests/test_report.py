@@ -80,7 +80,9 @@ def test_json_report_includes_coverage_lifecycle_and_redacted_evidence(tmp_path)
     assert item["category"] == "credentials" and item["confidence"] == 91
     assert payload["projects"][0]["scan"]["complete"] is False
     assert payload["projects"][0]["scan"]["unavailable_scanners"] == ["Semgrep"]
-    assert payload["projects"][0]["scan"]["coverage_gaps"] == ["Optional scanner unavailable: Semgrep"]
+    assert payload["projects"][0]["scan"]["coverage_gaps"] == [
+        "Scanner ATLAS Native execution was not verified", "Optional scanner unavailable: Semgrep",
+    ]
 
 
 def test_report_marks_large_file_skips_as_incomplete_coverage(tmp_path):
@@ -95,7 +97,24 @@ def test_report_marks_large_file_skips_as_incomplete_coverage(tmp_path):
     coverage = payload["projects"][0]["scan"]
     assert coverage["complete"] is False
     assert coverage["files_skipped_large"] == 1
-    assert coverage["coverage_gaps"] == ["1 eligible source file(s) exceeded the 2 MB limit"]
+    assert coverage["coverage_gaps"] == [
+        "Scanner ATLAS Native execution was not verified",
+        "1 eligible source file(s) exceeded the 2 MB limit",
+    ]
+
+
+def test_legacy_installed_scanner_does_not_prove_complete_scan(tmp_path):
+    import json
+
+    db = Database(tmp_path / "legacy.sqlite")
+    project = tmp_path / "Project"
+    project.mkdir()
+    scan = db.begin_code_scan(str(project))
+    db.finish_code_scan(scan.id, files_analyzed=1, changes=0, status="SAFE", health="COMPLETE",
+                        scanners='[{"name":"ATLAS Native","available":true}]')
+    reported = json.loads(render_json_report(db, project))["projects"][0]["scan"]
+    assert reported["complete"] is False
+    assert "Scanner ATLAS Native execution was not verified" in reported["coverage_gaps"]
 
 
 def test_incremental_scan_is_not_reported_as_project_complete(tmp_path):
@@ -112,6 +131,7 @@ def test_incremental_scan_is_not_reported_as_project_complete(tmp_path):
     assert result["scope"] == "incremental"
     assert result["complete"] is False
     assert result["coverage_gaps"] == [
+        "Scanner ATLAS Native execution was not verified",
         "Incremental scan covers changed files only; project-wide coverage was not refreshed"
     ]
 

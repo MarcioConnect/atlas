@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import tomllib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -83,8 +84,6 @@ class NormalizedFinding:
         self.confidence = max(0, min(100, int(self.confidence)))
         if self.scanner == "ATLAS Syntax":
             self.confidence = max(self.confidence, 95)
-        elif rule in {"hardcoded-secret", "exposed-secret"}:
-            self.confidence = max(self.confidence, 85)
         context = _finding_context(absolute, self.line)
         location = context or str(self.line or 0)
         identity = f"{self.scanner.casefold()}|{self.rule_id.casefold()}|{relative.casefold()}|{location}"
@@ -120,17 +119,29 @@ def _finding_context(path: Path, line: int | None) -> str:
         with path.open(encoding="utf-8", errors="replace") as stream:
             for index, current in enumerate(stream, 1):
                 if index == line:
-                    selected_line = current
+                    selected_line = _normalized_fingerprint_line(current)
                     break
+        occurrence = 0
+        if selected_line:
+            with path.open(encoding="utf-8", errors="replace") as stream:
+                for index, current in enumerate(stream, 1):
+                    if index > line:
+                        break
+                    if _normalized_fingerprint_line(current) == selected_line:
+                        occurrence += 1
     except OSError:
         return ""
     if not selected_line:
         return ""
-    value = selected_line.strip().casefold()
-    value = re.sub(r"(['\"]).*?\1", "[literal]", value)
-    value = re.sub(r"\b\d+(?:\.\d+)?\b", "[number]", value)
-    value = re.sub(r"\s+", " ", value)
-    return hashlib.sha256(value.encode("utf-8", "replace")).hexdigest()[:20] if value else ""
+    identity = selected_line if occurrence == 1 else f"{selected_line}|occurrence={occurrence}"
+    return hashlib.sha256(identity.encode("utf-8", "replace")).hexdigest()[:20]
+
+
+def _normalized_fingerprint_line(value: str) -> str:
+    normalized = value.strip().casefold()
+    normalized = re.sub(r"(['\"]).*?\1", "[literal]", normalized)
+    normalized = re.sub(r"\b\d+(?:\.\d+)?\b", "[number]", normalized)
+    return re.sub(r"\s+", " ", normalized)
 
 
 @dataclass(slots=True)
@@ -139,6 +150,26 @@ class ScannerAvailability:
     available: bool
     install: str
     detail: str = ""
+    status: str = "READY"
+    version: str = ""
+    started_at: str = ""
+    finished_at: str = ""
+    duration_seconds: float = 0.0
+    files_analyzed: int | None = None
+    files_skipped: int | None = None
+    scope: str = ""
+    exit_code: int | None = None
+    reason: str = ""
+
+    def record(self) -> dict[str, Any]:
+        return {
+            "name": self.name, "status": self.status, "available": self.available,
+            "version": self.version, "started_at": self.started_at,
+            "finished_at": self.finished_at, "duration_seconds": round(self.duration_seconds, 3),
+            "files_analyzed": self.files_analyzed, "files_skipped": self.files_skipped,
+            "scope": self.scope, "exit_code": self.exit_code,
+            "reason": redact(self.reason or self.detail)[:240], "install": self.install,
+        }
 
 
 @dataclass(slots=True)
@@ -148,6 +179,8 @@ class CodeScanResult:
     coverage: dict[str, set[str] | None] = field(default_factory=dict)
     files_analyzed: int = 0
     files_skipped_large: int = 0
+    files_skipped_unreadable: int = 0
+    health: str = "PARTIAL"
 
 
 def normalize_severity(value: str) -> str:
@@ -178,18 +211,33 @@ def is_ignored(path: Path, project: Path) -> bool:
 
 
 def is_priority_file(path: Path) -> bool:
-    return path.suffix.lower() in PRIORITY_SUFFIXES or path.name.lower() in PRIORITY_NAMES
+    name = path.name.lower()
+    return path.suffix.lower() in PRIORITY_SUFFIXES or name in PRIORITY_NAMES or name == ".env" or name.startswith(".env.")
+
+
+def _is_test_or_fixture(path: Path, project: Path) -> bool:
+    try:
+        parts = {part.casefold() for part in path.relative_to(project).parts}
+    except ValueError:
+        return False
+    return bool(parts & {"test", "tests", "fixtures"}) or path.name.casefold().startswith(("test_", "spec."))
 
 
 def discover_files(project: Path) -> list[Path]:
     return _discover_files(project)[0]
 
 
-def _discover_files(project: Path) -> tuple[list[Path], int]:
+def _discover_files(project: Path) -> tuple[list[Path], int, int]:
     found: list[Path] = []
     skipped_large = 0
+    skipped_unreadable = 0
+
+    def record_walk_error(_error: OSError) -> None:
+        nonlocal skipped_unreadable
+        skipped_unreadable += 1
+
     try:
-        candidates = scoped_files(project, IGNORED_DIRS)
+        candidates = scoped_files(project, IGNORED_DIRS, onerror=record_walk_error)
         for path in candidates:
             try:
                 if path.is_file() and is_priority_file(path) and not is_ignored(path, project):
@@ -198,10 +246,11 @@ def _discover_files(project: Path) -> tuple[list[Path], int]:
                     else:
                         found.append(path.resolve())
             except OSError:
+                skipped_unreadable += 1
                 continue
     except OSError:
-        pass
-    return found, skipped_large
+        skipped_unreadable += 1
+    return found, skipped_large, skipped_unreadable
 
 
 def _run(command: list[str], cwd: Path, timeout: int = 120) -> subprocess.CompletedProcess[str]:
@@ -230,30 +279,62 @@ class LocalCodeScanners:
 
     def scan(self, changed: list[Path] | None = None, changed_lines: dict[str, set[int]] | None = None) -> CodeScanResult:
         if changed is None:
-            targets, skipped_large = _discover_files(self.project)
+            targets, skipped_large, skipped_unreadable = _discover_files(self.project)
         else:
             targets = []
             skipped_large = 0
+            skipped_unreadable = 0
             for item in changed:
-                path = item.expanduser().resolve()
-                if path.exists() and path.is_file() and is_priority_file(path) and not is_ignored(path, self.project):
-                    if path.stat().st_size > MAX_SOURCE_FILE_BYTES:
-                        skipped_large += 1
-                    else:
-                        targets.append(path)
-        result = CodeScanResult(files_analyzed=len(targets), files_skipped_large=skipped_large)
+                try:
+                    path = item.expanduser().resolve()
+                    if path.exists() and path.is_file() and is_priority_file(path) and not is_ignored(path, self.project):
+                        if path.stat().st_size > MAX_SOURCE_FILE_BYTES:
+                            skipped_large += 1
+                        else:
+                            targets.append(path)
+                except OSError:
+                    skipped_unreadable += 1
+        targets = list(dict.fromkeys(targets))
+        result = CodeScanResult(
+            files_analyzed=len(targets), files_skipped_large=skipped_large,
+            files_skipped_unreadable=skipped_unreadable,
+        )
         # Reconcile complete findings for each changed file. Filtering out unchanged
         # lines here would falsely resolve still-present findings in that file.
-        self._native(targets, result)
-        self._security_guard(targets, result)
-        self._syntax(targets, result)
-        self._ruff(targets, result)
-        self._semgrep(targets, result)
-        self._bandit(targets, result)
-        self._pip_audit(changed, result)
-        self._npm_audit(changed, result)
-        self._psscriptanalyzer(targets, result)
-        self._trivy(changed, result)
+        runners = (
+            ("ATLAS Native", lambda: self._native(targets, result)),
+            ("ATLAS Security Guard", lambda: self._security_guard(targets, result)),
+            ("ATLAS Syntax", lambda: self._syntax(targets, result)),
+            ("Ruff", lambda: self._ruff(targets, result)),
+            ("Semgrep", lambda: self._semgrep(targets, result)),
+            ("Bandit", lambda: self._bandit(targets, result)),
+            ("pip-audit", lambda: self._pip_audit(changed, result)),
+            ("npm audit", lambda: self._npm_audit(changed, result)),
+            ("PSScriptAnalyzer", lambda: self._psscriptanalyzer(targets, result)),
+            ("Trivy", lambda: self._trivy(changed, result)),
+        )
+        for name, run in runners:
+            started = datetime.now(UTC)
+            clock_started = time.monotonic()
+            try:
+                run()
+            except Exception as exc:
+                result.coverage.pop(name, None)
+                result.findings = [item for item in result.findings if item.scanner != name]
+                if not any(item.name == name for item in result.availability):
+                    self._availability(result, name, True)
+                failed = next(item for item in reversed(result.availability) if item.name == name)
+                failed.reason = f"Scanner raised {type(exc).__name__}; partial output discarded."
+            finished = datetime.now(UTC)
+            execution = next((item for item in reversed(result.availability) if item.name == name), None)
+            if execution:
+                execution.started_at = started.isoformat()
+                execution.finished_at = finished.isoformat()
+                execution.duration_seconds = max(0.0, time.monotonic() - clock_started)
+                covered = result.coverage.get(name, set())
+                execution.files_analyzed = len(covered) if covered is not None else None
+                execution.scope = "FULL" if changed is None else "INCREMENTAL"
+        self._finalize_execution_status(result, targets, changed)
         settings = Settings.load()
         ignored = {str(rule).casefold() for rule in settings.ignored_rules}
         unique: dict[str, NormalizedFinding] = {}
@@ -273,6 +354,78 @@ class LocalCodeScanners:
             unique[item.fingerprint] = item
         result.findings = list(unique.values())
         return result
+
+    def _finalize_execution_status(
+        self, result: CodeScanResult, targets: list[Path], changed: list[Path] | None,
+    ) -> None:
+        python_files = [path for path in targets if path.suffix.lower() == ".py"]
+        power_shell_files = [path for path in targets if path.suffix.lower() == ".ps1"]
+        requirement_files = [self.project / name for name in ("requirements.txt", "requirements-dev.txt")
+                             if (self.project / name).is_file()]
+        manifests = bool(requirement_files)
+        npm_manifest = (self.project / "package.json").is_file()
+        trivy_inputs = any(path.name.lower() in {
+            "dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml",
+            "package-lock.json", "requirements.txt", "pyproject.toml",
+        } for path in targets) if changed is not None else (manifests or npm_manifest or any(
+            path.name.lower() in {"dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml", "package-lock.json"}
+            for path in targets
+        ))
+        applicable = {
+            "ATLAS Native": True, "ATLAS Security Guard": True,
+            "ATLAS Syntax": True,
+            "Ruff": bool(python_files), "Semgrep": bool(targets), "Bandit": bool(python_files),
+            "pip-audit": manifests and (changed is None or any(path.name.lower() in
+                {"requirements.txt", "requirements-dev.txt"} for path in changed)),
+            "npm audit": npm_manifest and (changed is None or any(path.name.lower() in
+                {"package.json", "package-lock.json", "npm-shrinkwrap.json"} for path in changed)),
+            "PSScriptAnalyzer": bool(power_shell_files), "Trivy": trivy_inputs,
+        }
+        partial = False
+        for execution in result.availability:
+            if execution.name == "pip-audit" and not manifests and (self.project / "pyproject.toml").is_file() and (
+                changed is None or any(path.name.lower() == "pyproject.toml" for path in changed)
+            ):
+                execution.status = "SKIPPED"
+                execution.reason = "No requirements file; this adapter cannot confirm pyproject dependency coverage."
+                partial = True
+                continue
+            if not applicable.get(execution.name, False):
+                execution.status = "NOT_APPLICABLE"
+                execution.reason = "No files or manifests in this scan scope require this scanner."
+                continue
+            if not execution.available:
+                execution.status = "NOT_INSTALLED"
+                execution.reason = execution.detail or "Optional scanner is not installed."
+                partial = True
+                continue
+            if execution.name not in result.coverage:
+                execution.status = "TIMEOUT" if execution.reason == "Scanner timed out." else "FAILED"
+                execution.reason = execution.reason or execution.detail or "Scanner did not return a validated result; prior findings were not resolved."
+                partial = True
+                continue
+            covered = result.coverage[execution.name]
+            if covered is None:
+                execution.status = "SUCCESS"
+            else:
+                expected = {str(path.resolve()).casefold() for path in targets if
+                            (execution.name not in {"ATLAS Syntax", "Ruff", "Bandit", "PSScriptAnalyzer"} or
+                             (execution.name == "ATLAS Syntax" and path.suffix.lower() in {".py", ".json", ".toml"}) or
+                             (execution.name in {"Ruff", "Bandit"} and path.suffix.lower() == ".py") or
+                             (execution.name == "PSScriptAnalyzer" and path.suffix.lower() == ".ps1"))}
+                if execution.name == "ATLAS Security Guard":
+                    expected = {str(path.resolve()).casefold() for path in targets
+                                if not _is_test_or_fixture(path, self.project)}
+                if execution.name == "pip-audit":
+                    expected = {str(path.resolve()).casefold() for path in requirement_files if
+                                changed is None or any(path.resolve() == item.resolve() for item in changed)}
+                if expected <= covered:
+                    execution.status = "SUCCESS"
+                else:
+                    execution.status = "PARTIAL"
+                    execution.reason = "One or more eligible files could not be confirmed as analyzed."
+                    partial = True
+        result.health = "PARTIAL" if partial or result.files_skipped_large or result.files_skipped_unreadable else "COMPLETE"
 
 
     def _syntax(self, targets: list[Path], result: CodeScanResult) -> None:
@@ -315,7 +468,9 @@ class LocalCodeScanners:
                         *map(str, python_files)], self.project)
         payload = _json(process.stdout)
         if process.returncode not in {0, 1} or not isinstance(payload, list):
+            self._process_failure(result, "Ruff", process)
             return
+        self._process_success(result, "Ruff", process)
         result.coverage["Ruff"] = {str(path.resolve()).casefold() for path in python_files}
         for item in payload:
             code = item.get("code") or "invalid-syntax"
@@ -328,7 +483,26 @@ class LocalCodeScanners:
             ))
 
     def _availability(self, result: CodeScanResult, name: str, available: bool, detail: str = "") -> None:
-        result.availability.append(ScannerAvailability(name, available, INSTALL_HINTS.get(name, "Built into ATLAS"), redact(detail)))
+        result.availability.append(ScannerAvailability(
+            name, available, INSTALL_HINTS.get(name, "Built into ATLAS"), redact(detail),
+            status="READY" if available else "NOT_INSTALLED",
+        ))
+
+    @staticmethod
+    def _process_failure(result: CodeScanResult, name: str, process: subprocess.CompletedProcess[str]) -> None:
+        execution = next((item for item in reversed(result.availability) if item.name == name), None)
+        if execution:
+            execution.exit_code = process.returncode
+            timed_out = "TimeoutExpired" in (process.stderr or "")
+            execution.reason = "Scanner timed out." if timed_out else (
+                f"Exit code {process.returncode} or invalid scanner output; raw output was not stored."
+            )
+
+    @staticmethod
+    def _process_success(result: CodeScanResult, name: str, process: subprocess.CompletedProcess[str]) -> None:
+        execution = next((item for item in reversed(result.availability) if item.name == name), None)
+        if execution:
+            execution.exit_code = process.returncode
 
     def _security_guard(
         self, targets: list[Path], result: CodeScanResult, changed_lines: dict[str, set[int]] | None = None,
@@ -337,12 +511,7 @@ class LocalCodeScanners:
         coverage: set[str] = set()
         severity = {"SUSPICIOUS": "LOW", "HIGH_RISK": "HIGH", "CRITICAL": "CRITICAL"}
         for path in targets:
-            try:
-                relative_parts = {part.casefold() for part in path.relative_to(self.project).parts}
-            except ValueError:
-                continue
-            is_test_fixture = "tests" in relative_parts or path.name.casefold().startswith(("test_", "spec."))
-            if is_test_fixture:
+            if _is_test_or_fixture(path, self.project):
                 continue
             try:
                 if path.stat().st_size > 2_000_000:
@@ -406,7 +575,7 @@ class LocalCodeScanners:
             allowed_lines = None
             if changed_lines is not None:
                 allowed_lines = changed_lines.get(str(path).casefold())
-            is_test_file = any(part.casefold() in {"test", "tests", "fixtures"} for part in path.relative_to(self.project).parts)
+            is_test_file = _is_test_or_fixture(path, self.project)
             for line_number, line in enumerate(content.splitlines(), 1):
                 if allowed_lines is not None and line_number not in allowed_lines:
                     continue
@@ -421,16 +590,19 @@ class LocalCodeScanners:
                         Severity.HIGH.value, scanner, "hardcoded-secret", str(path), line_number,
                         "Possible hardcoded credential", "Sensitive value detected; value [REDACTED]",
                         "Remove it from source, rotate it if real, and use a secret store or environment variable.",
+                        confidence=90 if re.fullmatch(r"(?:gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})",
+                                                       secret_value.strip().strip("'\"")) else 65,
                     ))
                 exposed = re.search(r"(?i)(?:host\s*[:=]\s*['\"]0\.0\.0\.0['\"]|--host\s+0\.0\.0\.0)", line)
-                if exposed and "re.compile" not in line:
+                if (path.suffix.lower() != ".py" and not is_test_file and exposed
+                        and not line.lstrip().startswith(("#", "//")) and "re.compile" not in line):
                     result.findings.append(NormalizedFinding(
                         Severity.MEDIUM.value, scanner, "network-all-interfaces", str(path), line_number,
                         "Service may be exposed on all network interfaces",
                         "Wildcard bind address detected; surrounding configuration omitted.",
                         "Bind to localhost unless remote access is explicitly required.",
                     ))
-            if path.suffix.lower() == ".py":
+            if path.suffix.lower() == ".py" and not is_test_file:
                 self._native_python_ast(path, content, result, allowed_lines)
             privileged = re.search(r'(?im)^\s*privileged:\s*true\s*(?:#.*)?$|"privileged"\s*:\s*true\b', content)
             if path.name.lower() in PRIORITY_NAMES and privileged:
@@ -458,11 +630,33 @@ class LocalCodeScanners:
         except (SyntaxError, ValueError):
             return
         for node in ast.walk(tree):
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                if (any(isinstance(target, ast.Name) and target.id.casefold() in {"host", "bind", "address"}
+                        for target in targets) and isinstance(node.value, ast.Constant)
+                        and node.value.value == "0.0.0.0"):
+                    result.findings.append(NormalizedFinding(
+                        Severity.MEDIUM.value, "ATLAS Native", "network-all-interfaces", str(path), node.lineno,
+                        "Service may be exposed on all network interfaces",
+                        "Wildcard bind assignment detected; runtime and firewall not verified.",
+                        "Confirm whether external access is intended and restrict network exposure if unnecessary.",
+                        confidence=70,
+                    ))
             if not isinstance(node, ast.Call):
                 continue
             line = getattr(node, "lineno", None)
             if allowed_lines is not None and line not in allowed_lines:
                 continue
+            if any(keyword.arg in {"host", "bind", "address"}
+                   and isinstance(keyword.value, ast.Constant) and keyword.value.value == "0.0.0.0"
+                   for keyword in node.keywords):
+                result.findings.append(NormalizedFinding(
+                    Severity.MEDIUM.value, "ATLAS Native", "network-all-interfaces", str(path), line,
+                    "Service may be exposed on all network interfaces",
+                    "Wildcard bind argument detected; runtime and firewall not verified.",
+                    "Confirm whether external access is intended and restrict network exposure if unnecessary.",
+                    confidence=70,
+                ))
             if isinstance(node.func, ast.Name) and node.func.id in {"eval", "exec"}:
                 result.findings.append(NormalizedFinding(
                     Severity.HIGH.value, "ATLAS Native", "python-eval", str(path), line,
@@ -493,9 +687,19 @@ class LocalCodeScanners:
         command = [executable, "scan", "--json", "--quiet", "--metrics", "off", "--config", "auto", *map(str, targets)]
         process = _run(command, self.project)
         payload = _json(process.stdout)
-        if not isinstance(payload, dict):
+        if (process.returncode != 0 or not isinstance(payload, dict)
+                or not isinstance(payload.get("results"), list) or payload.get("errors")):
+            self._process_failure(result, "Semgrep", process)
             return
-        result.coverage["Semgrep"] = {str(path).casefold() for path in targets}
+        scanned = (payload.get("paths") or {}).get("scanned")
+        if not isinstance(scanned, list):
+            execution = next(item for item in result.availability if item.name == "Semgrep")
+            execution.reason = "Scanner did not report the files it analyzed."
+            return
+        self._process_success(result, "Semgrep", process)
+        result.coverage["Semgrep"] = {
+            str((self.project / path).resolve()).casefold() for path in scanned if isinstance(path, str)
+        }
         for item in payload.get("results", []):
             extra = item.get("extra") or {}
             metadata = extra.get("metadata") or {}
@@ -514,9 +718,19 @@ class LocalCodeScanners:
             return
         process = _run([executable, "-q", "-f", "json", *map(str, python_files)], self.project)
         payload = _json(process.stdout)
-        if not isinstance(payload, dict):
+        if (process.returncode not in {0, 1} or not isinstance(payload, dict)
+                or not isinstance(payload.get("results"), list) or not isinstance(payload.get("errors", []), list)):
+            self._process_failure(result, "Bandit", process)
             return
-        result.coverage["Bandit"] = {str(path).casefold() for path in python_files}
+        failed_files = {
+            str((self.project / error.get("filename", "")).resolve()).casefold()
+            for error in payload.get("errors", []) if isinstance(error, dict) and error.get("filename")
+        }
+        self._process_success(result, "Bandit", process)
+        result.coverage["Bandit"] = {
+            str(path.resolve()).casefold() for path in python_files
+            if str(path.resolve()).casefold() not in failed_files
+        } if not payload.get("errors") or failed_files else set()
         for item in payload.get("results", []):
             rule_id = item.get("test_id", "unknown")
             filename = Path(item.get("filename", "unknown"))
@@ -534,31 +748,39 @@ class LocalCodeScanners:
     def _pip_audit(self, changed: list[Path] | None, result: CodeScanResult) -> None:
         executable = shutil.which("pip-audit")
         self._availability(result, "pip-audit", bool(executable))
-        manifests = [self.project / name for name in ("requirements.txt", "requirements-dev.txt") if (self.project / name).exists()]
-        pyproject = self.project / "pyproject.toml"
-        relevant = changed is None or any(path.name.lower() in {"requirements.txt", "requirements-dev.txt", "pyproject.toml"} for path in changed)
-        if not executable or not relevant or (not manifests and not pyproject.exists()):
+        manifests = [self.project / name for name in ("requirements.txt", "requirements-dev.txt")
+                     if (self.project / name).is_file()]
+        if changed is not None:
+            changed_paths = {path.resolve() for path in changed}
+            manifests = [path for path in manifests if path.resolve() in changed_paths]
+        if not executable or not manifests:
             return
-        command = [executable, "--format", "json", "--progress-spinner", "off"]
-        if manifests:
-            command.extend(["-r", str(manifests[0])])
-        else:
-            command.append(str(self.project))
-        process = _run(command, self.project, 25)
-        payload = _json(process.stdout)
-        if not isinstance(payload, (dict, list)):
-            return
-        result.coverage["pip-audit"] = None
-        dependencies = payload.get("dependencies", []) if isinstance(payload, dict) else payload
-        for dependency in dependencies:
-            for vulnerability in dependency.get("vulns", []):
-                result.findings.append(NormalizedFinding(
-                    Severity.HIGH.value, "pip-audit", vulnerability.get("id", "unknown"),
-                    str(manifests[0] if manifests else pyproject), None,
-                    f"Vulnerable Python dependency: {dependency.get('name', 'unknown')} {dependency.get('version', '')}",
-                    f"Advisory {vulnerability.get('id', 'unknown')}; dependency details only.",
-                    f"Upgrade to a fixed version: {', '.join(vulnerability.get('fix_versions') or []) or 'consult the advisory'}.",
-                ))
+        covered: set[str] = set()
+        for manifest in manifests:
+            process = _run([executable, "--format", "json", "--progress-spinner", "off", "-r", str(manifest)],
+                           self.project, 25)
+            payload = _json(process.stdout)
+            valid_payload = (isinstance(payload, list) or
+                             isinstance(payload, dict) and isinstance(payload.get("dependencies"), list))
+            if process.returncode not in {0, 1} or not valid_payload:
+                self._process_failure(result, "pip-audit", process)
+                continue
+            self._process_success(result, "pip-audit", process)
+            covered.add(str(manifest.resolve()).casefold())
+            dependencies = payload.get("dependencies", []) if isinstance(payload, dict) else payload
+            for dependency in dependencies:
+                if not isinstance(dependency, dict):
+                    continue
+                for vulnerability in dependency.get("vulns", []):
+                    result.findings.append(NormalizedFinding(
+                        Severity.HIGH.value, "pip-audit", vulnerability.get("id", "unknown"),
+                        str(manifest), None,
+                        f"Vulnerable Python dependency: {dependency.get('name', 'unknown')} {dependency.get('version', '')}",
+                        f"Advisory {vulnerability.get('id', 'unknown')}; dependency details only.",
+                        f"Upgrade to a fixed version: {', '.join(vulnerability.get('fix_versions') or []) or 'consult the advisory'}.",
+                    ))
+        if covered:
+            result.coverage["pip-audit"] = covered
 
     def _npm_audit(self, changed: list[Path] | None, result: CodeScanResult) -> None:
         executable = shutil.which("npm")
@@ -569,8 +791,12 @@ class LocalCodeScanners:
             return
         process = _run([executable, "audit", "--json", "--omit", "dev"], self.project, 25)
         payload = _json(process.stdout)
-        if not isinstance(payload, dict):
+        if (process.returncode not in {0, 1} or not isinstance(payload, dict)
+                or not isinstance(payload.get("auditReportVersion"), int)
+                or not isinstance(payload.get("vulnerabilities"), dict) or payload.get("error")):
+            self._process_failure(result, "npm audit", process)
             return
+        self._process_success(result, "npm audit", process)
         result.coverage["npm audit"] = None
         for name, item in (payload.get("vulnerabilities") or {}).items():
             via = item.get("via") or []
@@ -594,14 +820,16 @@ class LocalCodeScanners:
         scope: set[str] = set()
         for script in scripts:
             escaped = str(script).replace("'", "''")
-            command = f"Invoke-ScriptAnalyzer -Path '{escaped}' | Select-Object RuleName,Severity,Message,Line | ConvertTo-Json -Depth 3"
+            command = f"ConvertTo-Json -InputObject @(Invoke-ScriptAnalyzer -Path '{escaped}' | Select-Object RuleName,Severity,Message,Line) -Depth 3 -Compress"
             process = _run([pwsh, "-NoProfile", "-NonInteractive", "-Command", command], self.project)
-            if process.returncode != 0:
-                continue
-            scope.add(str(script).casefold())
             payload = _json(process.stdout)
-            rows = payload if isinstance(payload, list) else [payload] if isinstance(payload, dict) else []
-            for item in rows:
+            if (process.returncode != 0 or not isinstance(payload, list)
+                    or not all(isinstance(item, dict) for item in payload)):
+                self._process_failure(result, "PSScriptAnalyzer", process)
+                continue
+            self._process_success(result, "PSScriptAnalyzer", process)
+            scope.add(str(script).casefold())
+            for item in payload:
                 result.findings.append(NormalizedFinding(
                     item.get("Severity", "WARNING"), "PSScriptAnalyzer", item.get("RuleName", "unknown"),
                     str(script), item.get("Line"), item.get("Message", "PowerShell analyzer finding"),
@@ -621,8 +849,13 @@ class LocalCodeScanners:
             return
         process = _run([executable, "fs", "--format", "json", "--scanners", "vuln,misconfig,secret", "--quiet", str(self.project)], self.project, 90)
         payload = _json(process.stdout)
-        if not isinstance(payload, dict):
+        if process.returncode != 0 or not isinstance(payload, dict) or not isinstance(payload.get("Results"), list):
+            self._process_failure(result, "Trivy", process)
             return
+        if payload.get("Errors"):
+            self._process_failure(result, "Trivy", process)
+            return
+        self._process_success(result, "Trivy", process)
         result.coverage["Trivy"] = None
         for section in payload.get("Results", []):
             target = section.get("Target") or str(self.project)

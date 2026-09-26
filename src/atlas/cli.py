@@ -235,18 +235,23 @@ def scan_project(
         typer.echo(render_json_report(database, project))
         return
 
-    unavailable = [item for item in watchdog.state.availability if not item.available]
-    partial = bool(unavailable or watchdog.state.files_skipped_large)
+    unavailable = [item for item in watchdog.state.availability if item.status == "NOT_INSTALLED"]
+    partial = watchdog.state.health != "COMPLETE" or bool(watchdog.state.files_skipped_large)
     console.print(
         f"[bold cyan]ATLAS SCAN[/] · {'COBERTURA PARCIAL' if partial else 'SCANNERS DISPONÍVEIS EXECUTADOS'}"
     )
-    console.print(f"Projeto: {project}\nArquivos analisados: {watchdog.state.files_analyzed}")
+    console.print(f"Projeto: {project}\nSaúde do scan: {watchdog.state.health}\nArquivos analisados: {watchdog.state.files_analyzed}")
     console.print(f"Arquivos omitidos por excederem 2 MB: {watchdog.state.files_skipped_large}")
+    console.print(f"Arquivos/diretórios inacessíveis: {watchdog.state.files_skipped_unreadable}")
     for item in unavailable:
         console.print(f"[yellow]Scanner indisponível: {item.name}[/yellow] · Instalação: {item.install}")
+    for item in watchdog.state.availability:
+        if item.status in {"FAILED", "PARTIAL", "TIMEOUT", "CANCELLED"}:
+            console.print(f"[red]Scanner {item.name}: {item.status}[/red] · {item.reason or item.detail}")
     findings = [item for item in database.code_findings(str(project)) if item.state != "RESOLVED"]
     if not findings:
-        console.print("[green]Nenhum finding local detectado.[/] Isso não garante ausência de vulnerabilidades.")
+        message = "Nenhum finding detectado no escopo analisado." if partial else "Nenhum finding detectado pelos scanners concluídos."
+        console.print(f"[yellow]{message}[/] Isso não garante ausência de vulnerabilidades.")
         return
     table = Table(title=f"{len(findings)} finding(s) ativo(s)")
     for column in ("Estado", "Severidade", "Confiança estimada", "Regra", "Arquivo", "Linha", "Descrição", "Scanner"):
@@ -317,11 +322,11 @@ def watch(
                     shown_path = Path(item.file_path).name
                 table.add_row(item.state, item.severity, target.name, shown_path, str(item.line or "-"), item.description, item.scanner)
             for item in watchdog.state.availability:
-                if not item.available:
-                    console.print(f"[yellow]Scanner unavailable: {item.name}[/yellow]")
+                console.print(f"{item.name}: {item.status} ({item.duration_seconds:.2f}s)")
+                if item.status == "NOT_INSTALLED":
                     console.print(f"Install: {item.install}")
-                    if item.detail:
-                        console.print(f"Reason: {item.detail}")
+                if item.reason:
+                    console.print(f"Reason: {item.reason}")
         console.print(table)
         return
     from atlas.watch_tui import run_multi_watch_tui, run_watch_tui

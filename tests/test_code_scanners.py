@@ -101,7 +101,7 @@ def test_credentials_from_environment_comments_and_placeholders_are_not_secrets(
 
 def test_quoted_json_credential_detected_without_value_disclosure(tmp_path, monkeypatch):
     monkeypatch.setattr('atlas.code_scanners.shutil.which', lambda name: None)
-    value = 'test-only-' + 'not-real-credential'
+    value = 'r8V7n2Qp4Xx9u6Lw3A'
     target = tmp_path / 'app.json'
     target.write_text('{"api_key": "' + value + '"}')
     result = LocalCodeScanners(tmp_path).scan([target])
@@ -137,7 +137,36 @@ def test_findings_have_category_and_bounded_confidence(tmp_path: Path):
     record = finding.record()
     assert record["category"] == "credentials"
     assert 0 <= record["confidence"] <= 100
-    assert record["confidence"] >= 85
+    assert 50 <= record["confidence"] < 80
+    assert record["severity"] == "HIGH"
+
+
+def test_obvious_fake_secret_is_not_reported_but_plausible_value_is(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("atlas.code_scanners.shutil.which", lambda _name: None)
+    target = tmp_path / "settings.py"
+    target.write_text('API_KEY = "dummy-not-real-credential"\n', encoding="utf-8")
+    assert not any(item.rule_id == "hardcoded-secret" for item in LocalCodeScanners(tmp_path).scan().findings)
+    target.write_text('API_KEY = "r8V7n2Qp4Xx9u6Lw3A"\n', encoding="utf-8")
+    finding = next(item for item in LocalCodeScanners(tmp_path).scan().findings if item.rule_id == "hardcoded-secret")
+    assert finding.severity == "HIGH"
+    assert finding.confidence == 65
+
+
+def test_native_network_rule_ignores_string_example_but_detects_call(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("atlas.code_scanners.shutil.which", lambda _name: None)
+    target = tmp_path / "server.py"
+    target.write_text('example = "host=0.0.0.0"\n', encoding="utf-8")
+    assert not any(item.rule_id == "network-all-interfaces" for item in LocalCodeScanners(tmp_path).scan().findings)
+    target.write_text('app.run(host="0.0.0.0")\n', encoding="utf-8")
+    assert any(item.rule_id == "network-all-interfaces" for item in LocalCodeScanners(tmp_path).scan().findings)
+
+
+def test_identical_findings_on_different_lines_keep_distinct_fingerprints(tmp_path: Path):
+    target = tmp_path / "app.py"
+    target.write_text('eval(value)\neval(value)\n', encoding="utf-8")
+    first = NormalizedFinding("HIGH", "ATLAS Native", "python-eval", str(target), 1, "Issue", "safe", "Fix").finalize(tmp_path)
+    second = NormalizedFinding("HIGH", "ATLAS Native", "python-eval", str(target), 2, "Issue", "safe", "Fix").finalize(tmp_path)
+    assert first.fingerprint != second.fingerprint
 
 
 def test_expiring_finding_suppression_requires_reason_and_stays_visible(tmp_path: Path, monkeypatch):

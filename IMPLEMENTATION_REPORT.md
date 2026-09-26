@@ -1,5 +1,82 @@
 # ATLAS implementation report
 
+## Precision and scan-health pass (2026-09-25, source update)
+
+This section describes the source changes prepared for the main branch. The
+published v0.1.8 information below is historical; this pass was not built into
+the published Windows executable and is not a new release.
+
+### Extended deterministic validation (2026-09-25)
+
+- Added `tests/test_stress_precision.py` with 2,580 parameterized cases:
+  1,536 plausible/fake/environment-reference secret candidates, 512 redaction
+  cases, 256 Python call-versus-string cases, 256 fingerprint movement cases,
+  and a 20-case scanner-status/coverage matrix. The separate groups sum to
+  2,580; all passed in 17.20 seconds when run alone.
+- Added a Watchdog burst regression: 1,000 repeated events for one file yielded
+  one scan after debounce. This test passed in 1.82 seconds.
+- Baseline before additions: 163 tests passed in 64.53 seconds. A full suite
+  after the generated cases, but before the burst test, passed 2,743 tests in
+  83.99 seconds. Final full suite including the burst test: 2,744 passed in
+  83.75 seconds (Python 3.14 on this Windows machine). Ruff, compileall, and
+  `git diff --check` also passed.
+- These samples are synthetic and deterministic. The earlier 9-case fixture
+  precision/recall/F1 figures remain fixture-only; neither test volume nor a
+  zero-failure result establishes field accuracy or absence of vulnerabilities.
+
+### Completed
+
+- Scanner availability is now separate from execution status. Each local or
+  optional adapter records its actual outcome (`SUCCESS`, `PARTIAL`, `FAILED`,
+  `TIMEOUT`, `NOT_INSTALLED`, `NOT_APPLICABLE`, or `SKIPPED`), timing, exit code
+  when available, and coverage. Malformed output and scanner-reported errors
+  no longer become successful empty scans. Raw tool error output is not stored.
+- Findings from failed/partial/unavailable scanners become `UNVERIFIED`, not
+  `RESOLVED`. Successful resolution requires scanner success and relevant file
+  coverage; a full scan can confirm a deleted source file. An unexpected whole-scan
+  crash also leaves prior active findings `UNVERIFIED`. The database keeps
+  existing history through additive migration.
+- Source-scope traversal gaps and oversized files make scan health partial.
+  CLI, TUI, Markdown, and JSON reports show scan health, scanner status, and
+  coverage gaps, avoiding a misleading zero-findings conclusion. Historical
+  records with only `available=true` no longer imply a verified scan. Confidence
+  is also shown as LOW/MEDIUM/HIGH alongside its heuristic score.
+- Native secret detection now distinguishes obvious synthetic placeholders
+  from plausible literals while keeping suspicious values redacted. Python
+  wildcard-bind checks use the AST rather than matching quoted examples.
+  Test/fixture code is not treated as production Python vulnerability code.
+- Repeated identical source lines now receive distinct fingerprints while
+  unrelated line insertion preserves a finding fingerprint. Rapid file events
+  remain debounced; non-priority file changes do not trigger a source scan.
+- A wildcard `LISTEN` socket is reported as an observation rather than proven
+  external exposure. Port 2375 remains a high-severity potential risk with low
+  confidence. Passive Microsoft Defender mode is not equated with unprotected
+  Windows; incomplete Defender history is retained as incomplete coverage.
+
+### Verification
+
+- Baseline before this pass: 136 tests passed.
+- Final full suite: 163 passed in 64.16 seconds (Python 3.14 on Windows).
+- Final targeted report, scan-health, detection-corpus, and security tests:
+  38 passed. The corpus
+  contains 3 positive and 6 negative examples for selected native rules:
+  TP=3, FP=0, TN=6, FN=0; precision=recall=F1=1.0 **only on these nine
+  fixtures**. This is not a field accuracy estimate.
+- `py -m ruff check src tests tools`, `py -m compileall -q src tests tools`,
+  `git diff --check`, and CLI help smoke check passed. No release executable
+  or independent clean-machine run was produced in this local pass.
+
+### Partial or not implemented
+
+- No calibrated confidence probabilities, comprehensive cross-scanner
+  correlation, or representative real-world precision/recall dataset.
+- Firewall profile/rule correlation and proof of remote reachability are not
+  implemented; network findings explicitly communicate that uncertainty.
+- Watchdog Windows-module health by subsystem, general suppression policies,
+  and complete scan-to-scan trend comparisons are not implemented in this pass.
+- Optional external scanners and Defender depend on the tools, OS permissions,
+  and environment. Passing tests does not prove freedom from vulnerabilities.
+
 Status: ATLAS v0.1.8 is published at
 https://github.com/MarcioConnect/atlas/releases/tag/v0.1.8 with the Windows
 executable and SHA-256 sidecar. No PyPI package was uploaded. The executable is

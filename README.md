@@ -1,5 +1,9 @@
 # ATLAS v0.1.8
 
+> O código do branch `main` inclui melhorias de precisão e testes posteriores à
+> release v0.1.8. O executável dessa release ainda não contém essas mudanças;
+> para testá-las, instale o código-fonte com `python -m pip install .`.
+
 ## Painel integrado
 
 Execute `atlas` ou `atlas dashboard` para abrir o painel integrado, com scans,
@@ -243,7 +247,11 @@ atlas monitor status
 ATLAS opens a Textual TUI in the current terminal. Keep it running while using
 any editor or coding agent. Relevant changes are coalesced with a two-second
 debounce, scanned locally, reconciled with SQLite, and displayed as `NEW`,
-`EXISTING`, or `RESOLVED`.
+`EXISTING`, `RESOLVED`, or `UNVERIFIED`. A finding is only marked `RESOLVED`
+after its scanner succeeds and rechecks the relevant file/scope. A failed,
+partial, unavailable, or timed-out scanner leaves the prior finding unverified.
+The scan health indicates `COMPLETE` or `PARTIAL`; scanner installation alone
+does not count as a completed analysis.
 
 To monitor every existing project path saved in ATLAS, omit the path or use
 `--all`:
@@ -289,9 +297,13 @@ atlas watch "C:\Meu Projeto" --notify
 atlas watch "C:\Meu Projeto" --ignore-rule hardcoded-secret
 ```
 
-The native scanner uses an in-memory file snapshot to inspect only changed
-lines after the first observation. Optional scanners remain scoped to the
-changed files and unavailable tools are reported without stopping the watch.
+The Watchdog uses an in-memory file snapshot to prioritize changed files and
+lines after the first observation. The native scanner rechecks each changed
+file in full so an unchanged finding is not falsely marked resolved. Optional
+scanners remain scoped to changed files; unavailable or failed scanners are
+reported without stopping the watch. A `LISTEN` port is an observation, not
+proof of external reachability. The Defender integration is read-only during
+normal scans and its visibility depends on Windows policy and permissions.
 When `winotify` is installed, new findings also generate a Windows desktop
 notification; otherwise the TUI remains the source of truth.
 

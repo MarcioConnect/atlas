@@ -43,14 +43,15 @@ def _summary(database: Database, project_path: Path | None = None) -> dict[str, 
         "credentials": 100, "network": 100, "containers": 100, "host": 100, "code": 100, "overall": -1,
     }
     result = {"total": len(findings), "critical": 0, "high": 0, "medium": 0,
-              "low": 0, "info": 0, "new": 0, "existing": 0, "resolved": 0, "suppressed": 0,
+              "low": 0, "info": 0, "new": 0, "existing": 0, "unverified": 0,
+              "resolved": 0, "suppressed": 0,
               "score": int(system_scan.score) if system_scan else -1, **breakdown}
     for finding in findings:
         severity = str(getattr(finding, "severity", "INFO")).casefold()
         state = str(getattr(finding, "state", "")).casefold()
         if severity in result:
             result[severity] += 1
-        if state in {"new", "existing", "resolved", "suppressed"}:
+        if state in {"new", "existing", "unverified", "resolved", "suppressed"}:
             result[state] += 1
     return result
 
@@ -60,7 +61,7 @@ def _summary_markdown(summary: dict[str, int]) -> list[str]:
     return [
         "## Resumo executivo", "",
         f"- **Security Score:** `{score}`",
-        f"- **Findings totais:** `{summary['total']}` (novos: `{summary['new']}`, existentes: `{summary['existing']}`, suprimidos: `{summary['suppressed']}`, resolvidos: `{summary['resolved']}`)",
+        f"- **Findings totais:** `{summary['total']}` (novos: `{summary['new']}`, existentes: `{summary['existing']}`, não verificados: `{summary['unverified']}`, suprimidos: `{summary['suppressed']}`, resolvidos: `{summary['resolved']}`)",
         f"- **Severidades:** CRITICAL `{summary['critical']}` · HIGH `{summary['high']}` · MEDIUM `{summary['medium']}` · LOW `{summary['low']}` · INFO `{summary['info']}`",
         f"- **Score por domínio:** credenciais {summary['credentials']} · rede {summary['network']} · containers {summary['containers']} · host {summary['host']} · código {summary['code']}",
         "- **Interpretação:** o score considera causas únicas por domínio e limita repetições; findings são sinais para revisão, não prova automática de comprometimento.",
@@ -169,9 +170,11 @@ def render_report(database: Database, project_path: Path | None = None, now: dat
             f"- Último scan: `{_date(code_scan.completed_at)}`",
             f"- Arquivos analisados: `{code_scan.files_analyzed}`",
             f"- Arquivos de código ignorados pelo limite de 2 MB: `{code_scan.files_skipped_large}`",
+            f"- Arquivos/diretórios inacessíveis: `{code_scan.files_skipped_unreadable}`",
             f"- Escopo: `{'incremental (somente arquivos alterados)' if code_scan.trigger_file else 'projeto completo'}`",
             f"- Alterações: `{code_scan.changes}`",
             f"- Status: `{_safe(code_scan.status)}`",
+            f"- Saúde do scan: `{_safe(code_scan.health)}`",
             "",
         ])
         try:
@@ -186,15 +189,19 @@ def render_report(database: Database, project_path: Path | None = None, now: dat
             lines.append("### Cobertura dos scanners")
             for item in scanners:
                 if isinstance(item, dict):
-                    state = "disponível" if item.get("available") else "indisponível"
+                    state = item.get("status") or ("READY" if item.get("available") else "NOT_INSTALLED")
                     line = f"- {_safe(item.get('name', 'scanner'))}: **{state}**"
-                    if not item.get("available") and item.get("install"):
+                    if state == "NOT_INSTALLED" and item.get("install"):
                         line += f" · Instalação: {_safe(item['install'])}"
+                    if item.get("reason"):
+                        line += f" · {_safe(item['reason'])}"
+                    if item.get("duration_seconds") is not None:
+                        line += f" · {_safe(str(item.get('duration_seconds')))}s"
                     lines.append(line)
                 else:
                     lines.append(f"- {_safe(item)}")
             lines.append("")
-        for state in ("NEW", "EXISTING", "RESOLVED"):
+        for state in ("NEW", "EXISTING", "UNVERIFIED", "RESOLVED"):
             lines.extend(_section_findings(f"Watchdog — {state}", [item for item in code_findings if item.state == state]))
     else:
         lines.extend(["## Watchdog", "", "Nenhum scan do Watchdog registrado para este projeto.", ""])
@@ -282,6 +289,9 @@ def _finding_payload(item: object) -> dict[str, object]:
         if isinstance(value, str):
             value = _safe(value)
         result[output] = value
+    confidence = result.get("confidence")
+    if isinstance(confidence, int):
+        result["confidence_level"] = "HIGH" if confidence >= 80 else "MEDIUM" if confidence >= 50 else "LOW"
     return result
 
 
@@ -301,35 +311,50 @@ def render_json_report(database: Database, project_path: Path | None = None, now
             coverage = []
         if not isinstance(coverage, list):
             coverage = []
+        coverage_gaps = []
+        unavailable = []
+        for row in coverage:
+            if not isinstance(row, dict):
+                continue
+            status = row.get("status") or ("READY" if row.get("available") else "NOT_INSTALLED")
+            name = row.get("name", "scanner")
+            if status == "NOT_INSTALLED":
+                unavailable.append(name)
+                coverage_gaps.append(f"Optional scanner unavailable: {name}")
+            elif status in {"FAILED", "PARTIAL", "TIMEOUT", "CANCELLED", "SKIPPED"}:
+                coverage_gaps.append(f"Scanner {name} {status.lower()}: {row.get('reason') or 'result not validated'}")
+            elif status in {"READY", "RUNNING"}:
+                coverage_gaps.append(f"Scanner {name} execution was not verified")
+        if scan and scan.files_skipped_large:
+            coverage_gaps.append(f"{scan.files_skipped_large} eligible source file(s) exceeded the 2 MB limit")
+        if scan and scan.files_skipped_unreadable:
+            coverage_gaps.append(f"{scan.files_skipped_unreadable} file(s) or directory entries were inaccessible")
+        if scan and scan.trigger_file:
+            coverage_gaps.append("Incremental scan covers changed files only; project-wide coverage was not refreshed")
+        core_success = any(isinstance(row, dict) and row.get("name") == "ATLAS Native"
+                           and row.get("status") == "SUCCESS" for row in coverage)
+        complete = bool(
+            scan and scan.completed_at and scan.status in {"SAFE", "FINDINGS"}
+            and scan.trigger_file is None and scan.files_skipped_large == 0
+            and scan.files_skipped_unreadable == 0
+            and scan.health == "COMPLETE" and not coverage_gaps and core_success
+        )
         project_data.append({
             "path": _safe(project),
             "scan": ({
                 "status": scan.status,
+                "health": scan.health,
                 "started_at": scan.started_at.isoformat() if scan.started_at else None,
                 "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,
                 "files_analyzed": scan.files_analyzed,
                 "files_skipped_large": scan.files_skipped_large,
+                "files_skipped_unreadable": scan.files_skipped_unreadable,
                 "scope": "incremental" if scan.trigger_file else "full",
                 "changes": scan.changes,
                 "coverage": coverage,
-                "complete": bool(
-                    scan.completed_at and scan.status in {"SAFE", "FINDINGS"}
-                    and scan.trigger_file is None
-                    and scan.files_skipped_large == 0
-                    and not any(isinstance(row, dict) and not row.get("available") for row in coverage)
-                    and any(isinstance(row, dict) and row.get("name") == "ATLAS Native"
-                            and row.get("available") for row in coverage)
-                ),
-                "unavailable_scanners": [row.get("name") for row in coverage
-                                         if isinstance(row, dict) and not row.get("available")],
-                "coverage_gaps": (
-                    [f"{scan.files_skipped_large} eligible source file(s) exceeded the 2 MB limit"]
-                    if scan.files_skipped_large else []
-                ) + [
-                    f"Optional scanner unavailable: {row.get('name')}" for row in coverage
-                    if isinstance(row, dict) and not row.get("available")
-                ] + (["Incremental scan covers changed files only; project-wide coverage was not refreshed"]
-                     if scan.trigger_file else []),
+                "complete": complete,
+                "unavailable_scanners": unavailable,
+                "coverage_gaps": coverage_gaps,
             } if scan else None),
             "findings": [_finding_payload(item) for item in findings],
         })

@@ -255,7 +255,7 @@ class MonitorService:
                 item = records[identity]
                 handled = bool(item.get("ActionSuccess"))
                 self.record(
-                    "malware", Severity.INFO if handled else Severity.CRITICAL,
+                    "malware", Severity.INFO if handled else Severity.HIGH,
                     "Microsoft Defender", f"nova deteccao ThreatID={identity[0]}; tratada={handled}",
                     "Deteccao antimalware registrada pelo Windows Defender.",
                 )

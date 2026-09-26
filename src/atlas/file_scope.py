@@ -17,11 +17,11 @@ def linked_path(path: Path) -> bool:
         return True
 
 
-def scoped_files(root: Path, excluded: set[str]):
+def scoped_files(root: Path, excluded: set[str], onerror=None):
     if root.is_file():
         yield root
         return
-    for directory, folders, filenames in os.walk(root, followlinks=False):
+    for directory, folders, filenames in os.walk(root, followlinks=False, onerror=onerror):
         folders[:] = [name for name in folders
                       if not ignored_name(name, excluded)
                       and not linked_path(Path(directory) / name)

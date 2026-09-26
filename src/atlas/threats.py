@@ -43,15 +43,22 @@ def defender_snapshot() -> DefenderSnapshot:
         status = _powershell_json(
             "Get-MpComputerStatus | Select-Object AMServiceEnabled,AntivirusEnabled,AntispywareEnabled,"
             "BehaviorMonitorEnabled,IoavProtectionEnabled,RealTimeProtectionEnabled,AntivirusSignatureAge,"
-            "AntispywareSignatureAge,QuickScanAge,FullScanAge | ConvertTo-Json -Compress"
+            "AntispywareSignatureAge,QuickScanAge,FullScanAge,AMRunningMode | ConvertTo-Json -Compress"
         )
-        detections = _powershell_json(
-            "@(Get-MpThreatDetection | Select-Object ThreatID,ActionSuccess,InitialDetectionTime,Resources) | "
-            "ConvertTo-Json -Compress"
-        )
+        if not isinstance(status, dict):
+            raise TypeError("invalid Defender status response")
+        detail = ""
+        try:
+            detections = _powershell_json(
+                "@(Get-MpThreatDetection | Select-Object ThreatID,ActionSuccess,InitialDetectionTime,Resources) | "
+                "ConvertTo-Json -Compress"
+            )
+        except (OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
+            detections = []
+            detail = f"Threat history unavailable: {type(exc).__name__}"
         if isinstance(detections, dict):
             detections = [detections]
-        if not isinstance(status, dict) or not isinstance(detections, list):
+        if not isinstance(detections, list):
             raise TypeError("invalid Defender response")
         safe_detections = []
         for item in detections[:100]:
@@ -64,7 +71,7 @@ def defender_snapshot() -> DefenderSnapshot:
                 "InitialDetectionTime": str(item.get("InitialDetectionTime") or ""),
                 "Resources": [redact(Path(str(value)).name) for value in resources[:5]],
             })
-        return DefenderSnapshot(True, status, safe_detections)
+        return DefenderSnapshot(True, status, safe_detections, detail)
     except (OSError, ValueError, TypeError, json.JSONDecodeError, subprocess.SubprocessError) as exc:
         detail = str(exc) if isinstance(exc, PermissionError) else type(exc).__name__
         return DefenderSnapshot(False, {}, [], detail)

@@ -21,6 +21,24 @@ def test_defender_snapshot_degrades_safely(monkeypatch):
     assert snapshot == DefenderSnapshot(False, {}, [], "OSError")
 
 
+def test_defender_status_survives_unavailable_threat_history(monkeypatch):
+    calls = 0
+
+    def fake_powershell(_script):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"AntivirusEnabled": True, "AMRunningMode": "Normal"}
+        raise PermissionError("Administrator permission required for Defender telemetry")
+
+    monkeypatch.setattr("atlas.threats._powershell_json", fake_powershell)
+    snapshot = defender_snapshot()
+    assert snapshot.available is True
+    assert snapshot.status["AntivirusEnabled"] is True
+    assert snapshot.detections == []
+    assert snapshot.detail == "Threat history unavailable: PermissionError"
+
+
 def test_executable_inspection_hashes_without_running_target(tmp_path, monkeypatch):
     target = tmp_path / "sample.exe"
     target.write_bytes(b"fixture executable bytes")

@@ -62,6 +62,8 @@ def is_secret_candidate(value: str) -> bool:
     candidate = value.strip().strip("'\"").strip()
     if _PLACEHOLDER_SECRET.fullmatch(candidate):
         return False
+    if re.search(r"(?i)(?:^|[-_])(?:not[-_]?real|test[-_]?only|placeholder|example|dummy|fake|changeme)(?:$|[-_])", candidate):
+        return False
     if len(candidate) < 12 or re.fullmatch(r"[A-Za-z0-9_./+:-]+", candidate) is None:
         return False
     return len(set(candidate)) >= 5 and len(set(candidate)) / len(candidate) >= 0.18
@@ -141,6 +143,7 @@ def finding(
     risk: str,
     component: str,
     recommendation: str,
+    confidence: int = 70,
 ) -> Finding:
     safe_evidence = redact(evidence)
     safe_component = redact(component)[:255]
@@ -149,6 +152,7 @@ def finding(
         check_id=check_id,
         title=title,
         severity=severity.value,
+        confidence=max(0, min(100, confidence)),
         evidence=safe_evidence,
         risk=redact(risk),
         component=safe_component,
@@ -212,15 +216,18 @@ class SecurityScanner:
             "BehaviorMonitorEnabled", "RealTimeProtectionEnabled",
         )
         disabled = [name for name in required if snapshot.status.get(name) is False]
+        passive = "passive" in str(snapshot.status.get("AMRunningMode") or "").casefold()
         if disabled:
             results.append(finding(
-                "defender-disabled", "Protecao antimalware desativada", Severity.CRITICAL,
-                "Recursos desativados: " + ", ".join(disabled),
-                "Malware e spyware podem executar sem inspecao em tempo real.",
-                "Microsoft Defender", "Reative a protecao pela interface oficial ou contate o administrador.",
+                "defender-disabled", "Microsoft Defender nao esta totalmente ativo",
+                Severity.INFO if passive else Severity.HIGH,
+                "Recursos do Defender desativados: " + ", ".join(disabled)
+                + ("; modo passivo" if passive else ""),
+                "A telemetria nao confirma a protecao efetiva de outro antivirus.",
+                "Microsoft Defender", "Confira o provedor antivirus ativo na Seguranca do Windows.",
             ))
         signature_age = snapshot.status.get("AntivirusSignatureAge")
-        if isinstance(signature_age, int) and signature_age > 3:
+        if not passive and isinstance(signature_age, int) and signature_age > 3:
             results.append(finding(
                 "defender-signatures", "Assinaturas antimalware desatualizadas", Severity.HIGH,
                 f"Idade das assinaturas: {signature_age} dias",
@@ -231,11 +238,17 @@ class SecurityScanner:
             action_success = bool(item.get("ActionSuccess"))
             results.append(finding(
                 "defender-detection", "Ameaca detectada pelo Microsoft Defender",
-                Severity.INFO if action_success else Severity.CRITICAL,
+                Severity.INFO if action_success else Severity.HIGH,
                 f"ThreatID={item.get('ThreatID') or 'unknown'}; action_success={action_success}; "
                 f"resources={','.join(item.get('Resources') or []) or '[REDACTED]'}",
-                "Deteccao historica tratada." if action_success else "Uma deteccao pode permanecer ativa ou sem tratamento.",
+                "Deteccao historica tratada." if action_success else "A acao no historico nao foi confirmada; o estado atual da ameaca e desconhecido.",
                 "Microsoft Defender", "Abra Seguranca do Windows e confirme o estado e a acao aplicada.",
+            ))
+        if snapshot.detail:
+            results.append(finding(
+                "defender-history-coverage", "Historico de ameacas do Defender indisponivel", Severity.INFO,
+                snapshot.detail, "A consulta ao historico nao foi concluida.",
+                "Microsoft Defender", "Confira permissoes e consulte o historico na Seguranca do Windows.",
             ))
         return results
 
@@ -255,7 +268,7 @@ class SecurityScanner:
         medium = {135, 139, 445}
         listeners = listening_ports()
         seen: set[tuple[int, str]] = set()
-        for item in listeners:
+        for item in sorted(listeners, key=lambda row: row["host"] not in {"0.0.0.0", "::"}):
             # Compare observed listeners; this does not bind a socket.
             wildcard = item["host"] in {"0.0.0.0", "::"}  # nosec B104
             # Do not flood the report with ephemeral localhost/RPC listeners.
@@ -270,11 +283,9 @@ class SecurityScanner:
                 continue
             seen.add(identity)
             if wildcard and item["port"] in critical:
-                severity, title = Severity.CRITICAL, "Interface administrativa sem TLS potencialmente exposta"
-            elif wildcard and item["port"] in high:
-                severity, title = Severity.HIGH, "Servico sensivel exposto em todas as interfaces"
-            elif wildcard and item["port"] in medium:
-                severity, title = Severity.MEDIUM, "Servico de sistema exposto em todas as interfaces"
+                severity, title = Severity.HIGH, "Possivel listener administrativo de alto risco"
+            elif wildcard and item["port"] in high | medium:
+                title = "Servico sensivel escutando em todas as interfaces"
             elif wildcard:
                 title = "Porta em escuta em todas as interfaces"
             results.append(
@@ -283,9 +294,10 @@ class SecurityScanner:
                     title,
                     severity,
                     f"{item['host']}:{item['port']} LISTEN pid={item['pid'] or '-'} processo={item['process']}",
-                    "Um listener pode ampliar a superficie de ataque, conforme rede e firewall.",
+                    "O endereco de bind foi observado; acesso externo e regras efetivas de firewall nao foram confirmados.",
                     f"{item['process']}:{item['port']}",
-                    "Confirme a necessidade do listener e restrinja bind e firewall ao minimo necessario.",
+                    "Confirme a necessidade do listener e verifique perfil de rede, firewall e alcance real.",
+                    confidence=40 if wildcard else 30,
                 )
             )
         if not listeners:
@@ -352,7 +364,7 @@ class SecurityScanner:
         has_http = any(item["port"] == 80 for item in ports)
         has_https = any(item["port"] == 443 for item in ports)
         if has_http and not has_https:
-            results.append(finding("http-without-https", "HTTP ativo sem listener HTTPS", Severity.MEDIUM, "Porta 80 em escuta; porta 443 nao detectada", "Dados podem trafegar sem confidencialidade e autenticidade.", "servidor web", "Configure TLS e redirecione HTTP para HTTPS."))
+            results.append(finding("http-without-https", "HTTP local sem listener HTTPS observado", Severity.INFO, "Porta 80 em escuta; porta 443 nao detectada", "TLS pode terminar em proxy, outra porta ou outro host; a configuracao efetiva nao foi confirmada.", "servidor web", "Verifique onde TLS termina antes de concluir que o trafego externo e inseguro.", confidence=40))
         for path in [p for p in common_server_configs() if p.name != "sshd_config"]:
             try:
                 content = path.read_text(encoding="utf-8", errors="replace")

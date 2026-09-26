@@ -204,14 +204,15 @@ class AtlasPanel(App):
                 coverage_rows = [row for row in parsed_coverage if isinstance(row, dict)] if isinstance(parsed_coverage, list) else []
             except (TypeError, ValueError):
                 coverage_rows = []
-        unavailable_count = sum(not row.get("available") for row in coverage_rows)
-        coverage_status = "PARCIAL" if unavailable_count or (current_scan and current_scan.files_skipped_large) else "LOCAL"
+        unavailable_count = sum(row.get("status") == "NOT_INSTALLED" or
+                                row.get("status") is None and not row.get("available") for row in coverage_rows)
+        coverage_status = current_scan.health if current_scan else "UNKNOWN"
         scan_scope = "incremental" if current_scan and current_scan.trigger_file else "full"
         self.query_one("#overview", Static).update(
             f"Projeto: {self.project.name}\nSecurity Score: {score}\n{domain_line}\n\n"
             f"Arquivos no último scan: {current_scan.files_analyzed if current_scan else 0}\n"
             f"Escopo do último scan: {scan_scope}\n"
-            f"Cobertura: {coverage_status} · omitidos (>2 MB): {current_scan.files_skipped_large if current_scan else 0} · scanners ausentes: {unavailable_count}\n"
+            f"Cobertura: {coverage_status} · omitidos (>2 MB): {current_scan.files_skipped_large if current_scan else 0} · inacessíveis: {current_scan.files_skipped_unreadable if current_scan else 0} · scanners ausentes: {unavailable_count}\n"
             f"Findings ativos: {len(findings)}\nWatch: {self.watchdog.state.status}{elapsed}\n"
             f"Revisão IA: {'ATIVA' if self.watchdog.ai_enabled else 'DESLIGADA'}\n"
             + (f"Último scan: {current_scan.started_at.astimezone():%d/%m %H:%M}" if current_scan else

@@ -18,7 +18,7 @@ class SequenceScanner:
             item.finalize(self.project)
         return CodeScanResult(
             findings=findings,
-            availability=[ScannerAvailability("Test", True, "")],
+            availability=[ScannerAvailability("Test", True, "", status="SUCCESS")],
             coverage={"Test": None},
             files_analyzed=1,
         )
@@ -72,6 +72,42 @@ def test_debounce_coalesces_repeated_changes(tmp_path: Path):
         watcher.stop()
 
 
+def test_debounce_coalesces_thousand_identical_events_into_one_scan(tmp_path: Path):
+    project = tmp_path / "burst"
+    project.mkdir()
+    target = project / "app.py"
+    target.write_text("pass\n", encoding="utf-8")
+    calls: list[list[Path] | None] = []
+
+    class CountingScanner:
+        def __init__(self, _project: Path):
+            pass
+
+        def scan(self, changed=None):
+            calls.append(changed)
+            return CodeScanResult(
+                availability=[ScannerAvailability("Test", True, "", status="SUCCESS")],
+                coverage={"Test": {str(target.resolve()).casefold()}}, files_analyzed=1, health="COMPLETE",
+            )
+
+    watcher = CodeWatchdog(project, Database(tmp_path / "burst.sqlite"),
+                           debounce_seconds=0.15, scanner_factory=CountingScanner)
+    watcher.start(initial_scan=False)
+    try:
+        for _ in range(1000):
+            watcher.queue(target)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not calls:
+            time.sleep(0.02)
+        assert len(calls) == 1
+        time.sleep(0.35)
+        assert len(calls) == 1
+        assert watcher.state.changes >= 1000
+        assert calls[0] == [target]
+    finally:
+        watcher.stop()
+
+
 def test_unavailable_scanner_does_not_resolve_old_finding(tmp_path: Path):
     project = tmp_path / "project"
     project.mkdir()
@@ -82,7 +118,7 @@ def test_unavailable_scanner_does_not_resolve_old_finding(tmp_path: Path):
     second_scan = database.begin_code_scan(str(project))
     outcome = database.reconcile_code_findings(str(project), second_scan.id, [], {})
     assert outcome["RESOLVED"] == []
-    assert database.code_findings(str(project), "EXISTING")
+    assert database.code_findings(str(project), "UNVERIFIED")
 
 
 def test_real_filesystem_event_triggers_scan(tmp_path: Path):

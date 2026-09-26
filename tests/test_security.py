@@ -3,6 +3,7 @@ from pathlib import Path
 from atlas.database import Database
 from atlas.models import Severity
 from atlas.security import SecurityScanner, finding, redact, score_breakdown, score_findings
+from atlas.threats import DefenderSnapshot
 
 
 def test_redact_removes_common_secrets():
@@ -44,13 +45,19 @@ def test_secret_scanner_ignores_review_artifacts(tmp_path: Path):
 
 def test_secret_scanner_detects_real_project_secret(tmp_path: Path):
     config = tmp_path / "config.py"
-    fake_value = "test-only-credential-value"
+    fake_value = "r8V7n2Qp4Xx9u6Lw3A"
     config.write_text(f"API_KEY = '{fake_value}'\n", encoding="utf-8")
     scanner = SecurityScanner(Database(tmp_path / "atlas.db"))
     findings = scanner._secrets([tmp_path])
     assert len(findings) == 1
     assert findings[0].severity == Severity.HIGH
     assert fake_value not in findings[0].evidence
+
+
+def test_secret_scanner_does_not_flag_explicitly_fake_value_in_project(tmp_path: Path):
+    config = tmp_path / "config.py"
+    config.write_text("API_KEY = 'test-only-credential-value'\n", encoding="utf-8")
+    assert SecurityScanner(Database(tmp_path / "atlas.db"))._secrets([tmp_path]) == []
 
 
 def test_default_secret_scope_does_not_sweep_watch_paths(tmp_path: Path, monkeypatch):
@@ -67,6 +74,31 @@ def test_secret_scanner_ignores_placeholders_and_test_fixtures(tmp_path: Path):
     (fixture / ".env").write_text("API_TOKEN=definitely-not-a-real-test-token-value\n", encoding="utf-8")
     scanner = SecurityScanner(Database(tmp_path / "atlas.db"))
     assert scanner._secrets([tmp_path]) == []
+
+
+def test_passive_defender_is_not_called_unprotected(tmp_path: Path, monkeypatch):
+    snapshot = DefenderSnapshot(True, {
+        "AMRunningMode": "Passive Mode", "AntivirusEnabled": False,
+        "RealTimeProtectionEnabled": False, "AntivirusSignatureAge": 30,
+    }, [])
+    monkeypatch.setattr("atlas.threats.defender_snapshot", lambda: snapshot)
+    findings = SecurityScanner(Database(tmp_path / "atlas.db"))._antimalware()
+    assert any(item.check_id == "defender-disabled" and item.severity == "INFO" for item in findings)
+    assert not any(item.check_id == "defender-signatures" for item in findings)
+    assert not any(item.severity == "CRITICAL" for item in findings)
+
+
+def test_listener_is_observation_not_proven_external_exposure(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("atlas.security.listening_ports", lambda: [
+        {"host": "0.0.0.0", "port": 135, "pid": 4, "process": "System"},
+        {"host": "0.0.0.0", "port": 2375, "pid": 10, "process": "dockerd"},
+    ])
+    findings = SecurityScanner(Database(tmp_path / "atlas.db"))._ports()
+    by_port = {item.component.rsplit(":", 1)[-1]: item for item in findings}
+    assert by_port["135"].severity == Severity.INFO
+    assert by_port["2375"].severity == Severity.HIGH
+    assert all(item.confidence == 40 for item in findings)
+    assert all("nao foram confirmados" in item.risk for item in findings)
 
 
 def test_score_breakdown_separates_domains_and_caps_repetition():

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import logging
 import threading
@@ -34,8 +35,10 @@ from atlas.security import redact
 class WatchState:
     project: Path
     status: str = "STARTING"
+    health: str = "UNKNOWN"
     files_analyzed: int = 0
     files_skipped_large: int = 0
+    files_skipped_unreadable: int = 0
     changes: int = 0
     scan_scope: str = "FULL"
     last_scan_at: datetime | None = None
@@ -201,10 +204,11 @@ class CodeWatchdog:
             with self._lock:
                 changed = list(self._pending.values())
                 self._pending.clear()
-            if changed:
+            code_changed = [path for path in changed if is_priority_file(path)]
+            if code_changed:
                 # A deletion requires a full pass so findings belonging to the
                 # removed file can be resolved with trustworthy coverage.
-                self.scan_now(None if any(not path.exists() for path in changed) else changed)
+                self.scan_now(None if any(not path.exists() for path in code_changed) else code_changed)
 
     def scan_now(
         self, changed: list[Path] | None = None, *, baseline: bool = False,
@@ -226,17 +230,22 @@ class CodeWatchdog:
             self._notify()
             changed_lines = self._changed_line_map(changed)
             scanner = self.scanner_factory(self.project)
-            try:
+            scan_signature = inspect.signature(scanner.scan)
+            accepts_changed_lines = "changed_lines" in scan_signature.parameters or any(
+                item.kind == inspect.Parameter.VAR_KEYWORD for item in scan_signature.parameters.values()
+            )
+            if accepts_changed_lines:
                 local_result: CodeScanResult = scanner.scan(changed, changed_lines=changed_lines)
-            except TypeError:
-                # Keep compatibility with custom scanner factories using the v0.1 API.
+            else:
                 local_result = scanner.scan(changed)
             self.state.phase = "RECONCILING"
             self._notify()
             if changed is None:
                 self._seed_snapshots()
             reconciled = self.database.reconcile_code_findings(
-                str(self.project), scan.id, [item.record() for item in local_result.findings], local_result.coverage
+                str(self.project), scan.id, [item.record() for item in local_result.findings], local_result.coverage,
+                {item.name: item.status for item in local_result.availability},
+                full_scan=changed is None and local_result.files_skipped_unreadable == 0,
             )
             if accept_initial_baseline:
                 self.database.accept_code_baseline(str(self.project))
@@ -251,30 +260,36 @@ class CodeWatchdog:
                 notify_new_findings(self.project, self.state.new)
             self.state.files_analyzed = local_result.files_analyzed
             self.state.files_skipped_large = local_result.files_skipped_large
+            self.state.files_skipped_unreadable = local_result.files_skipped_unreadable
             self.state.availability = local_result.availability
+            self.state.health = local_result.health
             self.state.last_scan_at = datetime.now(UTC)
             current = self.database.code_findings(str(self.project))
             actionable = [item for item in current if item.state != "RESOLVED"]
             self.state.status = "STOPPED" if self._stop.is_set() else ("FINDINGS" if actionable else "SAFE")
             self.state.phase = "IDLE"
             scanner_json = json.dumps(
-                [{"name": item.name, "available": item.available, "install": item.install} for item in local_result.availability],
+                [item.record() for item in local_result.availability],
                 ensure_ascii=True,
             )
             self.database.finish_code_scan(
                 scan.id, files_analyzed=local_result.files_analyzed, changes=self.state.changes,
                 status=self.state.status, scanners=scanner_json,
                 files_skipped_large=local_result.files_skipped_large,
+                files_skipped_unreadable=local_result.files_skipped_unreadable,
+                health=local_result.health,
             )
             return reconciled
         except Exception as exc:
             self.state.status = "ERROR"
+            self.state.health = "FAILED"
             self.state.phase = "IDLE"
             self.state.error = type(exc).__name__
             if scan is not None:
                 try:
+                    self.database.mark_code_findings_unverified(str(self.project), scan.id)
                     self.database.finish_code_scan(
-                        scan.id, files_analyzed=0, changes=self.state.changes, status="ERROR", scanners="[]"
+                        scan.id, files_analyzed=0, changes=self.state.changes, status="ERROR", scanners="[]", health="FAILED"
                     )
                 except Exception as persistence_error:
                     # Persistence may still be unavailable. Always release the
