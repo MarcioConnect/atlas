@@ -2,22 +2,17 @@ import asyncio
 
 from atlas.code_scanners import ScannerAvailability
 from atlas.database import Database
-from atlas.tui import AtlasApp, DashboardScreen, MainScreen
+from atlas.tui import run_tui
 from atlas.watch_tui import WatchdogApp, WatchScreen
 
 
-def test_tui_opens_overview(monkeypatch):
-    async def run():
-        async with AtlasApp().run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            assert isinstance(pilot.app.screen, MainScreen)
-            assert pilot.app.screen.query_one("#launch-menu") is not None
-            assert len(pilot.app.screen.query("#launch-menu Button")) == 6
-            assert pilot.app.screen.query_one("#chat-input") is not None
-            assert pilot.app.screen.query_one("#chat-log") is not None
-            assert "SECURITY WATCHDOG" in str(pilot.app.screen.query_one("#wordmark").render())
+def test_tui_entry_point_opens_integrated_panel(monkeypatch):
+    opened = []
+    monkeypatch.setattr("atlas.panel.AtlasPanel.run", lambda self: opened.append(self))
 
-    asyncio.run(run())
+    run_tui()
+
+    assert len(opened) == 1
 
 
 def test_watchdog_tui_opens_for_path_with_spaces(monkeypatch, tmp_path):
@@ -50,63 +45,3 @@ def test_watchdog_status_limits_incremental_clean_claim(tmp_path):
     screen.watchdog.state.status = "SAFE"
     screen.watchdog.state.scan_scope = "INCREMENTAL"
     assert "CHANGED SCOPE" in screen._status()
-
-
-def test_dashboard_menu_accepts_keyboard_selection(monkeypatch):
-    async def run():
-        async with AtlasApp().run_test(size=(120, 40)) as pilot:
-            await pilot.pause(0.1)
-            await pilot.press("escape")
-            # The regular atlas home is intentionally separate; exercise the
-            # dashboard screen directly to validate its menu focus/selection.
-            await pilot.app.push_screen(DashboardScreen())
-            await pilot.pause(0.1)
-            screen = pilot.app.screen
-            assert isinstance(screen, DashboardScreen)
-            assert screen.query_one("#menu").has_focus
-            await pilot.press("down", "enter")
-            await pilot.pause(0.1)
-            assert screen.current_view == "Live Monitor"
-
-    asyncio.run(run())
-
-
-def test_home_watch_mode_item_dispatches(monkeypatch):
-    async def run():
-        async with AtlasApp().run_test(size=(120, 40)) as pilot:
-            await pilot.pause(0.1)
-            screen = pilot.app.screen
-            assert isinstance(screen, MainScreen)
-            await pilot.press("down", "enter")
-            await pilot.pause(0.2)
-            assert isinstance(pilot.app.screen, WatchScreen)
-
-    asyncio.run(run())
-
-
-def test_home_menu_buttons_accept_mouse_click(monkeypatch):
-    async def run():
-        async with AtlasApp().run_test(size=(120, 40)) as pilot:
-            await pilot.pause(0.1)
-            screen = pilot.app.screen
-            assert isinstance(screen, MainScreen)
-            await pilot.click("#launch-2")
-            await pilot.pause(0.2)
-            assert isinstance(pilot.app.screen, WatchScreen)
-
-    asyncio.run(run())
-
-
-def test_home_report_button_generates_markdown(monkeypatch, tmp_path):
-    report = tmp_path / "atlas-report-2026-09-12.md"
-    monkeypatch.setattr("atlas.tui.generate_markdown_report", lambda *args, **kwargs: report)
-
-    async def run():
-        async with AtlasApp().run_test(size=(120, 40)) as pilot:
-            await pilot.pause(0.1)
-            await pilot.click("#launch-4")
-            await pilot.pause(0.1)
-            status = str(pilot.app.screen.query_one("#action-status").render())
-            assert "REPORT SAVED" in status
-
-    asyncio.run(run())

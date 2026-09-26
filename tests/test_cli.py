@@ -27,13 +27,9 @@ def test_history_empty(monkeypatch, tmp_path):
     assert "Historico" in result.stdout
 
 
-def test_bare_atlas_opens_native_tui_not_hermes(monkeypatch):
+def test_bare_atlas_opens_native_tui(monkeypatch):
     opened = []
     monkeypatch.setattr("atlas.tui.run_tui", lambda: opened.append(True))
-    monkeypatch.setattr(
-        "atlas.agent_backend.launch_agent",
-        lambda: (_ for _ in ()).throw(AssertionError("Hermes must not start")),
-    )
 
     result = runner.invoke(app, [])
 
@@ -41,20 +37,10 @@ def test_bare_atlas_opens_native_tui_not_hermes(monkeypatch):
     assert opened == [True]
 
 
-def test_agent_opens_advanced_atlas_conversation_when_available(monkeypatch):
+def test_agent_opens_integrated_panel_with_legacy_alias(monkeypatch):
     opened = []
     monkeypatch.setattr("atlas.panel.AtlasPanel.run", lambda self: opened.append(True))
-
-    result = runner.invoke(app, ["agent"])
-
-    assert result.exit_code == 0
-    assert len(opened) == 1
-
-
-def test_agent_falls_back_to_portable_local_ui(monkeypatch):
-    opened = []
-    monkeypatch.setattr("atlas.panel.AtlasPanel.run", lambda self: opened.append(True))
-    result = runner.invoke(app, ["agent"])
+    result = runner.invoke(app, ["agent", "--advanced"])
     assert result.exit_code == 0
     assert opened == [True]
 

@@ -290,7 +290,7 @@ This does not involve an LLM or AI tokens.
 atlas                         # native ATLAS dashboard + conversation TUI
 atlas scan [PROJECT]          # análise pontual local; --format json opcional
 atlas agent                   # conversa do agente ATLAS no terminal
-atlas agent --advanced        # exige o chat avançado do ATLAS
+atlas agent --advanced        # alias compatível para o painel integrado
 atlas dashboard               # system security dashboard
 atlas security                # read-only machine scan
 atlas malware status          # Defender protection and detection status
@@ -366,8 +366,8 @@ filenames are replaced with `[SENSITIVE_FILE]`.
 - Semgrep `auto` configuration and vulnerability databases can require network access.
 - Protected machine-wide checks may be incomplete without Administrator access;
   ATLAS reports reduced coverage rather than failing.
-- `atlas agent` opens the integrated panel. Legacy advanced-backend options do
-  not enable external agents. Chat uses Ollama when available, otherwise local rules.
+- `atlas agent` opens the integrated panel. `--advanced` remains as a compatibility
+  alias. Chat uses Ollama when available, otherwise local rules.
 - The native scanner is intentionally conservative and is not a replacement for
   specialist scanners or a professional security review.
 - Ollama improves context but can still make mistakes; deterministic scanners

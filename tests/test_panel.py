@@ -40,8 +40,7 @@ def test_benign_encoding_and_invisible_text_do_not_raise_incident():
 def test_portrait_preserves_original_menu_art():
     from textual.app import App
 
-    from atlas.terminal_art import AtlasPortrait
-    from atlas.tui import ATLAS_PORTRAIT
+    from atlas.terminal_art import ATLAS_PORTRAIT, AtlasPortrait
 
     class ArtApp(App):
         def compose(self):
