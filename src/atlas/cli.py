@@ -269,7 +269,7 @@ def scan_project(
 @app.command()
 def watch(
     project: Path | None = typer.Argument(None, help="Diretorio do projeto; omitido observa todos os caminhos configurados."),
-    ai: bool = typer.Option(False, "--ai", help="Revisa findings novos com Ollama local; nunca executa codigo."),
+    ai: bool = typer.Option(False, "--ai", help="Habilita revisao explicita de findings com Ollama local."),
     ai_model: str | None = typer.Option(None, "--ai-model", help="Modelo Ollama local; padrao definido nas configuracoes."),
     once: bool = typer.Option(False, "--once", help="Executa um scan local e encerra."),
     all_projects: bool = typer.Option(False, "--all", help="Observa todos os caminhos configurados."),

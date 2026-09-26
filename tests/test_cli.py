@@ -14,6 +14,12 @@ def test_version():
     assert __version__ in result.stdout
 
 
+def test_watch_ai_help_requires_explicit_review():
+    result = runner.invoke(app, ["watch", "--help"])
+    assert result.exit_code == 0
+    assert "revisao explicita" in result.stdout
+
+
 def test_history_empty(monkeypatch, tmp_path):
     monkeypatch.setattr("atlas.cli.Database", lambda: __import__("atlas.database", fromlist=["Database"]).Database(tmp_path / "db.sqlite"))
     result = runner.invoke(app, ["history"])

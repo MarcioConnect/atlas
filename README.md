@@ -57,7 +57,7 @@ instalação abaixo.
 ## Estado da versão
 
 O fluxo arquivo alterado → debounce → scanner local → comparação → SQLite → TUI
-foi validado em Windows. A suíte local passou 2.744 testes, incluindo uma rajada
+foi validado em Windows. A suíte local passou 2.745 testes, incluindo uma rajada
 de 1.000 eventos consolidada em um scan. Esses testes usam muitos casos sintéticos
 e não provam precisão em todos os projetos. Scanners externos continuam opcionais.
 

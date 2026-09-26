@@ -20,6 +20,9 @@ separately from the code and test results in this report.
   83.99 seconds. Final full suite including the burst test: 2,744 passed in
   83.75 seconds (Python 3.14 on this Windows machine). Ruff, compileall, and
   `git diff --check` also passed.
+- After the v0.1.9 launcher and CLI-help wording changes, the complete local
+  suite passed 2,745 tests in 80.62 seconds. The built executable and GitHub
+  Actions matrix are validated separately from this test count.
 - These samples are synthetic and deterministic. The earlier 9-case fixture
   precision/recall/F1 figures remain fixture-only; neither test volume nor a
   zero-failure result establishes field accuracy or absence of vulnerabilities.

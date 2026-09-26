@@ -13,7 +13,7 @@ All notable changes to ATLAS are documented in this file.
   analyzing, monitoring and investigating instead of generic agent claims.
 - Simplify the README around the three primary commands and real limitations.
 - Add a deterministic detection corpus, a scanner-status matrix and a 1,000-event
-  Watchdog debounce regression. The Windows/Python 3.14 suite passed 2,744 tests;
+  Watchdog debounce regression. The Windows/Python 3.14 suite passed 2,745 tests;
   these synthetic tests are not a field accuracy estimate.
 
 ## [0.1.8] - 2026-09-23
