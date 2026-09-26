@@ -107,9 +107,9 @@ class MainScreen(Screen):
     def compose(self) -> ComposeResult:
         info = (
             f"[ ATLAS v{__version__} ]\n"
-            "AI INFRASTRUCTURE AGENT\n"
-            "LOCAL MODE\n"
-            "READY."
+            "AGENTE DE SEGURANÇA LOCAL\n"
+            "CÓDIGO / SISTEMA / HISTÓRICO\n"
+            "PRONTO."
         )
         host = host_overview()
         system = (
@@ -126,11 +126,11 @@ class MainScreen(Screen):
                     yield Static(ATLAS_AGENT_MARK + "\nATLAS AGENT", id="agent-badge", markup=False)
                     yield Static(info, id="identity", markup=False)
                     yield Static(ATLAS_PORTRAIT, id="portrait", markup=False)
-                    yield Static("A T L A S\n>  LOCAL AGENT READY", id="wordmark", markup=False)
+                    yield Static("A T L A S\n>  SECURITY WATCHDOG", id="wordmark", markup=False)
                 with Vertical(id="command-pane"):
                     yield Static(
-                        "INFRASTRUCTURE  /  SECURITY  /  AUTOMATION\n"
-                        "DOCUMENTATION  /  MONITORING  /  YOU IN CONTROL",
+                        "ANALISAR  /  MONITORAR  /  INVESTIGAR\n"
+                        "RESULTADOS COM EVIDÊNCIA E COBERTURA",
                         id="manifest",
                         markup=False,
                     )

@@ -1,95 +1,31 @@
-# ATLAS v0.1.8
+# ATLAS v0.1.9
 
-> O código do branch `main` inclui melhorias de precisão e testes posteriores à
-> release v0.1.8. O executável dessa release ainda não contém essas mudanças;
-> para testá-las, instale o código-fonte com `python -m pip install .`.
-
-## Painel integrado
-
-Execute `atlas` ou `atlas dashboard` para abrir o painel integrado, com scans,
-severidades, histórico, atividades e conversa no mesmo terminal. O comando
-`atlas agent` agora abre esse painel; o backend de chat separado não é iniciado.
-A conversa usa Ollama quando disponível e informa explicitamente quando a análise
-por IA não pôde ser executada. Scanners locais continuam disponíveis sem modelo.
-Selecione o projeto no campo superior e pressione Enter. Clique em um scan para
-consultar os findings atuais daquele projeto. Ctrl+S inicia scan, Ctrl+W alterna
-Watch, Ctrl+R gera relatório e Ctrl+Q sai. A arte é adaptada para caracteres de
-terminal; números e versão são os reais da instalação.
-
-O banner reutiliza a garota do menu preto original em caracteres Braille
-brancos, sem navegador ou mosaico cinza. Use Windows Terminal com uma fonte monoespaçada;
-uma janela de 120 × 40 ou maior oferece melhor leitura. A navegação selecionada,
-os painéis e as barras de severidade têm destaque próprio.
-
-No Windows, o painel tenta iniciar silenciosamente o Ollama instalado em
-`%LOCALAPPDATA%\Programs\Ollama` (ou `OllamaCPU`). O modelo precisa estar baixado:
-`ollama pull qwen2.5-coder:3b`. O rodapé verifica novamente a disponibilidade a
-cada 30 segundos. Ter o serviço iniciado não significa que o modelo já esteja
-disponível. O Watch local continua funcionando sem Ollama.
-
-**Leitura automática no chat:** a cada pergunta, o ATLAS busca nomes e conteúdo
-em até 64 arquivos elegíveis e envia trechos de até 8 arquivos ao modelo.
-Prioriza nomes citados, funções, linhas explícitas (como `src/app.py:180`) e
-alterações recentes. Os trechos podem vir do meio do arquivo, preservando as linhas
-originais. O cache guarda somente conteúdo sanitizado, em memória, e é atualizado
-quando o arquivo muda. Fontes e cobertura parcial aparecem na resposta.
-Ignora `.env`, dependências, arquivos privados e binários, e oculta linhas com
-possíveis credenciais. O contexto é limitado a 12 mil caracteres; não representa
-uma varredura completa do computador. O modelo não executa comandos.
-`atlas watch "C:\MeuProjeto" --ai`
-habilita revisões explícitas locais. O Watch nunca envia findings automaticamente;
-selecione um finding e pressione `a` para solicitar a revisão. No painel, `/ai on`
-habilita a capacidade, mas a análise ocorre após uma pergunta explícita no chat.
-Ollama e o modelo são instalações separadas do ATLAS.
-
-O chat mantém as últimas interações somente na memória da sessão e do projeto.
-`/context` mostra as fontes utilizadas; `/clear` limpa a conversa e o cache.
-Use `atlas agent --in "C:\MeuProjeto" --model qwen2.5-coder:3b` para escolher
-o projeto e um modelo local instalado. Trocar o projeto também limpa o contexto.
-
-O Watch reanalisa por inteiro os arquivos alterados, incluindo os achados que
-continuam presentes. Isso evita marcar um risco como resolvido quando apenas
-outra linha do mesmo arquivo mudou. A seleção dos arquivos continua incremental.
-Findings exibem categoria e confiança estimada. Uma supressão individual requer
-motivo e prazo; ela continua visível no painel com estado `SUPPRESSED`.
-
-## Precisão e estabilidade da v0.1.8
-
-- Baseline inicial silenciosa: findings preexistentes começam como EXISTING.
-- Fingerprints usam contexto sanitizado e resistem a inserções em outras linhas.
-- Secrets exigem valor plausível; placeholders, fixtures e dependências são ignorados.
-- Security Score separado por credenciais, rede, containers, host e código.
-- Scans abandonados são recuperados, e a fase atual aparece no painel.
-- Baseline não é reaplicada em cada reinício do Watchdog.
-- Scans incrementais são apresentados como escopo alterado, não como scan completo do projeto.
-
-Para testar esta copia local:
+Agente defensivo de terminal para Windows. O ATLAS observa projetos escolhidos,
+analisa código alterado com scanners locais e destaca riscos novos sem depender
+de Codex, editor ou IA. Mantém histórico e mostra quando um scan ficou incompleto.
 
 ```powershell
-python -m pip install .
-atlas watch "C:\Meu Projeto"
+atlas scan "C:\MeuProjeto"        # análise pontual
+atlas watch "C:\MeuProjeto"       # monitoramento no terminal
+atlas monitor start               # monitora projetos salvos em segundo plano
 ```
 
-O Watch nao detecta todos os erros possiveis. As ferramentas opcionais ampliam
-a cobertura; resultados continuam exigindo revisão humana. Consulte a release
-v0.1.8 para o código e o executável. Veja as limitações detalhadas em
-`IMPLEMENTATION_REPORT.md`.
+`atlas` abre o painel; `atlas report --format html` gera um relatório.
+Ollama é opcional e só analisa dados mediante solicitação. O ATLAS não explora
+falhas, não substitui o Microsoft Defender e não garante ausência de vulnerabilidades.
 
-ATLAS is a defensive Security Watchdog for Windows that runs entirely in the
-terminal. It watches a source tree, scans changed code with local tools, and
-reports only findings that are new since the previous measured scan.
+## Resultado confiável
 
-It is independent of Codex, Cursor, Claude Code, IDEs, and editors. The core
-watch mode does not call an LLM and does not consume AI tokens.
-
-> Alpha software. ATLAS reduces review time but does not guarantee that a
-> system or project is free of vulnerabilities.
+Cada finding mostra severidade, confiança heurística e scanner. `RESOLVED` exige
+que o scanner execute com sucesso e reanalise o arquivo/escopo; caso contrário,
+o estado é `UNVERIFIED`. Scans parciais e scanners ausentes aparecem como lacunas
+de cobertura. A baseline inicial não dispara alertas antigos como novos.
 
 ## Download rápido (Windows)
 
 Quer apenas usar? Baixe o executável pronto na página da release:
 
-**[Baixar ATLAS-Security-Agent.exe — v0.1.8](https://github.com/MarcioConnect/atlas/releases/download/v0.1.8/ATLAS-Security-Agent.exe)**
+**[Baixar ATLAS-Security-Agent.exe — v0.1.9](https://github.com/MarcioConnect/atlas/releases/download/v0.1.9/ATLAS-Security-Agent.exe)**
 
 Depois, no PowerShell:
 
@@ -108,7 +44,7 @@ if ($actual -ne $expected) { throw "ATLAS checksum mismatch" }
 "ATLAS checksum OK"
 ```
 
-The v0.1.8 executable is not Authenticode-signed; Windows may show a publisher
+The v0.1.9 executable is not Authenticode-signed; Windows may show a publisher
 warning. A checksum detects corruption but does not independently prove who
 published the file. See [`docs/SIGNING.md`](docs/SIGNING.md).
 
@@ -118,36 +54,12 @@ executável está disponível em [`assets/atlas.ico`](assets/atlas.ico).
 Para instalar como pacote Python e usar o comando `atlas`, siga a seção de
 instalação abaixo.
 
-## v0.1 implementation status
+## Estado da versão
 
-The core workflow is functional:
-
-```text
-CODE CHANGES
-    -> ATLAS detects the filesystem event
-    -> waits for the debounce window
-    -> runs available local scanners
-    -> compares stable fingerprints with the previous measured state
-    -> stores NEW / EXISTING / RESOLVED in SQLite
-    -> refreshes the terminal TUI
-```
-
-Validation completed on Windows:
-
-- 126 automated tests passing on the local Windows/Python 3.14 environment;
-- real filesystem event detection verified;
-- repeated events coalesced by debounce;
-- `NEW -> EXISTING -> RESOLVED` lifecycle verified end to end;
-- paths containing spaces verified;
-- missing optional scanners verified without crashes;
-- consecutive unchanged scans verified without repeated findings;
-- source tree checked with zero exposed-secret findings;
-- package metadata validated for `pip install .`;
-- Textual Watchdog TUI opened and exercised in Windows Terminal.
-
-Current optional-tool availability depends on the host. ATLAS always keeps the
-built-in scanner active and prints an installation command for each missing
-scanner.
+O fluxo arquivo alterado → debounce → scanner local → comparação → SQLite → TUI
+foi validado em Windows. A suíte local passou 2.744 testes, incluindo uma rajada
+de 1.000 eventos consolidada em um scan. Esses testes usam muitos casos sintéticos
+e não provam precisão em todos os projetos. Scanners externos continuam opcionais.
 
 ## Screenshot
 
@@ -417,6 +329,7 @@ is accepted as EXISTING, so only later regressions become NEW. On every scan:
 - `NEW`: not active in the previous measured state, or it reappeared;
 - `EXISTING`: still present;
 - `RESOLVED`: absent from a scanner/file scope that was successfully measured.
+- `UNVERIFIED`: the responsible scanner failed, was skipped, or could not confirm coverage.
 
 An unavailable scanner has no coverage and therefore cannot accidentally mark
 its older findings as resolved.
@@ -483,15 +396,8 @@ service.
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
-## GitHub release checklist
+## Publicação
 
-- [x] Runtime dependencies declared in `pyproject.toml`
-- [x] CLI, Watchdog, debounce, lifecycle, redaction, and TUI tests
-- [x] `README.md`, `LICENSE`, `.gitignore`, and `CHANGELOG.md`
-- [x] PyPI-compatible package metadata
-- [x] Add the final sanitized TUI screenshot
-- [x] MIT copyright holder set to `ATLAS contributors`
-- [x] Install and execute the built wheel in an isolated Windows environment
-- [ ] Let GitHub Actions validate the Python 3.11/3.12/3.13 matrix after push
-- [x] Build and inspect wheel and source distribution
-- [ ] Create the GitHub repository, review staged files, and tag `v0.1.0`
+O código-fonte, o executável Windows e seu SHA-256 ficam na [página de releases](https://github.com/MarcioConnect/atlas/releases).
+O executável não possui assinatura Authenticode; verifique o hash e consulte
+[`docs/SIGNING.md`](docs/SIGNING.md). O ATLAS ainda é software alfa.

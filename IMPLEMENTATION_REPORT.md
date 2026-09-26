@@ -1,10 +1,10 @@
 # ATLAS implementation report
 
-## Precision and scan-health pass (2026-09-25, source update)
+## Precision and scan-health pass (2026-09-25, v0.1.9)
 
-This section describes the source changes prepared for the main branch. The
-published v0.1.8 information below is historical; this pass was not built into
-the published Windows executable and is not a new release.
+This section describes the v0.1.9 source and release candidate. The published
+v0.1.8 information below is historical; release artifact validation is tracked
+separately from the code and test results in this report.
 
 ### Extended deterministic validation (2026-09-25)
 

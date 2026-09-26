@@ -15,7 +15,7 @@ def test_tui_opens_overview(monkeypatch):
             assert len(pilot.app.screen.query("#launch-menu Button")) == 6
             assert pilot.app.screen.query_one("#chat-input") is not None
             assert pilot.app.screen.query_one("#chat-log") is not None
-            assert "LOCAL AGENT READY" in str(pilot.app.screen.query_one("#wordmark").render())
+            assert "SECURITY WATCHDOG" in str(pilot.app.screen.query_one("#wordmark").render())
 
     asyncio.run(run())
 
