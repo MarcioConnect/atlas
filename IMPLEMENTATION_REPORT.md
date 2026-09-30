@@ -1,5 +1,77 @@
 # ATLAS implementation report
 
+## Windows regression validation (2026-09-30, unreleased)
+
+This section records validation of the September 30 command-reference UI
+changes and the fixes below. The release executable has not been rebuilt during
+this validation.
+
+### Bugs reproduced and corrected
+
+- The command-reference popup allocated a fixed viewport height to its text,
+  preventing scrolling in smaller terminals. Its content now determines its
+  height, and the panel test checks scrolling through the complete reference.
+- A file rename caused the destination to be scanned while the old source's
+  finding remained active. The event handler now queues both in-scope paths.
+  The missing source requests a full scan, and successful scanner coverage
+  verifies the removed path. Any issue still present at the destination remains
+  an active finding; renaming does not make its content safe.
+- The real local Defender query returned valid protection status but `null` for
+  empty threat history. ATLAS incorrectly discarded the valid status and reported
+  Defender unavailable with `TypeError`. Empty history now yields an empty list;
+  the PowerShell query explicitly serializes an array and stops on cmdlet errors.
+- A malformed or inaccessible threat-history response no longer masks valid
+  protection telemetry. The CLI shows the history limitation instead of implying
+  zero detections were confirmed.
+- Missing, null, or string-valued protection indicators previously satisfied the
+  CLI's active-protection check. The CLI now requires actual boolean `True`
+  values, reports explicitly disabled protection, and returns an unknown status
+  with exit code 1 when protection cannot be determined.
+
+### New regression coverage
+
+Added 15 cases: seven live Watchdog integration cases, two Defender history
+cases, and six Defender CLI cases. Live integration uses the Windows filesystem
+observer, the real native scanner, and temporary SQLite databases. It covers
+new detection, line movement without duplication, confirmed fixes, renaming,
+moves into/out of ignored dependencies, deletion, editor atomic saves, and
+changes plus conflicting scan requests while another scan is active.
+
+Optional scanner discovery and desktop notifications are disabled in these
+live cases to isolate the native pipeline. External scanner failures/timeouts,
+AI service failures, and Defender permission errors remain covered with mocks.
+The rename regression and six Defender/CLI assertions failed before their fixes
+and passed afterwards.
+
+### Final results
+
+| Check | Result |
+| --- | --- |
+| Complete suite, Windows / Python 3.11.16 | 2,753 passed in 128.62 s |
+| Complete suite, Windows / Python 3.14 | 2,753 passed in 127.30 s |
+| Focused Watchdog / Defender / CLI suite | 32 passed in 10.75 s |
+| Panel suite after the final Help scrolling adjustment | 7 passed in 16.88 s |
+| Ruff, bytecode compilation, installed dependency check | Passed |
+| Wheel build and Twine metadata check | Passed |
+| Wheel installed independently of source checkout on Python 3.11 | Entry point reports 0.1.9; bundled icon and version rules present |
+| Wheel archive inspection | Icon/rules included; no `.env`, `.pem`, `.key`, `.pfx`, SQLite or database files |
+| Real local `atlas malware status` after correction | `Defender ACTIVE`, zero records in available threat history |
+
+The two final full-suite runs account for 5,506 passing test executions. They
+used separate temporary configurations/databases and ran in parallel; durations
+are verification timings rather than performance benchmarks. JUnit XML results
+were saved outside the repository in the local temporary validation directory.
+The full-suite runs preceded the final Help scrolling adjustment, which was
+then verified against all seven panel tests.
+
+The existing nine-case synthetic corpus still reports 3 true positives, 6 true
+negatives, no false positives and no false negatives (precision/recall/F1 1.0
+for those fixtures only). Most suite cases are generated regression samples;
+these figures do not measure field accuracy. No live malware scan, adversarial
+malware sample execution, remote Ollama request, executable rebuild or release
+publication was performed. The real Defender check was read-only status/history
+inspection. Passing this suite does not establish absence of vulnerabilities.
+
 ## Precision and scan-health pass (2026-09-25, v0.1.9)
 
 This section describes the published v0.1.9 source and Windows release. The

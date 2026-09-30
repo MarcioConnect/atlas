@@ -9,6 +9,7 @@ from rich.text import Text
 from sqlalchemy import desc, select
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Footer, Input, RichLog, Static
 
 from atlas import __version__
@@ -21,6 +22,62 @@ from atlas.privacy import sanitize_text
 from atlas.report import generate_markdown_report
 from atlas.security import redact, score_breakdown
 from atlas.terminal_art import AtlasPortrait, AtlasWordmark
+
+COMMAND_REFERENCE = """ATLAS — GUIA RÁPIDO DE COMANDOS
+
+PROJETOS E CÓDIGO
+atlas scan [PASTA] [--format table|json]   Analisa um projeto uma vez.
+atlas watch [PASTA] [--once] [--all]       Observa projetos; --once executa e sai.
+atlas watch --ai                          Habilita revisão Ollama somente sob demanda.
+
+SEGURANÇA E RELATÓRIOS
+atlas security [--path PASTA]              Analisa a configuração do host.
+atlas report --format md|html|json         Salva relatório no Downloads.
+atlas malware status                       Consulta o estado do Defender.
+atlas malware scan PASTA                   Solicita scan Defender, sem remediação.
+atlas malware inspect ARQUIVO.exe          Hash e assinatura; não executa arquivo.
+
+MONITOR RESIDENTE E HISTÓRICO
+atlas monitor start [--watch PASTA]         Inicia monitor em segundo plano.
+atlas monitor status|events|stop            Consulta, lista eventos ou encerra.
+atlas monitor install                      Inicia agora e configura no login.
+atlas monitor start --startup              Alternativa para iniciar com o Windows.
+atlas config --add-path PASTA              Salva um projeto para monitoramento.
+atlas history                              Mostra sessões e eventos registrados.
+atlas start --watch PASTA                  Registra uma sessão de trabalho.
+atlas stop                                 Fecha a sessão e salva o resumo.
+
+PAINEL E CHAT
+atlas ou atlas dashboard                   Abre este painel no terminal.
+atlas agent [--model MODELO]                Abre o chat ATLAS/Ollama.
+/scan  /watch  /report  /help               Ações rápidas dentro do chat.
+/context  /clear  /ai on  /ai off            Fontes, histórico local e preferência IA.
+
+ATALHOS DO PAINEL
+Ctrl+S scan · Ctrl+W Watch · Ctrl+R relatório · Ctrl+Q sair · Esc fechar esta ajuda
+
+Use `atlas --help` ou `atlas COMANDO --help` para ver todas as opções e argumentos."""
+
+
+class CommandHelpScreen(ModalScreen[None]):
+    BINDINGS = [("escape", "close", "Fechar"), ("q", "close", "Fechar")]
+    CSS = """
+    CommandHelpScreen { align: center middle; background: #000000 70%; }
+    #command-help { width: 92%; height: 90%; border: round #6c94b8; background: #050505; padding: 1 2; }
+    #command-help-title { height: 2; color: #8fcfff; text-style: bold; }
+    #command-help-list { height: auto; color: #dedede; }
+    #command-help-footer { height: 1; color: #888888; }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="command-help"):
+            yield Static("ATLAS / COMANDOS", id="command-help-title")
+            with VerticalScroll(id="command-help-scroll"):
+                yield Static(COMMAND_REFERENCE, id="command-help-list", markup=False)
+            yield Static("Esc ou Q · fechar", id="command-help-footer")
+
+    def action_close(self) -> None:
+        self.dismiss(None)
 
 
 class AtlasPanel(App):
@@ -126,7 +183,7 @@ class AtlasPanel(App):
                             yield Button(label, id=f"quick-{key}")
                 yield Static("Painel pronto. Selecione um projeto para analisar.", id="details", markup=False)
                 yield RichLog(id="chat", markup=False, wrap=True)
-        yield Input(placeholder="Pergunte ao ATLAS ou use /scan /watch /report /help", id="command")
+        yield Input(placeholder="Pergunte ao ATLAS ou use /scan /watch /report /commands", id="command")
         yield Static("Ollama: verificando serviço local…", id="ai-status", markup=False)
         yield Footer()
 
@@ -263,7 +320,7 @@ class AtlasPanel(App):
         elif key == "tools":
             self.status("Scanners: " + (", ".join(f"{s.name}: {'disponível' if s.available else 'indisponível'}" for s in self.watchdog.state.availability) or "execute um scan para medir disponibilidade."))
         elif key == "help":
-            self.status("Ctrl+S scan · Ctrl+W Watch · Ctrl+R relatório · Ctrl+Q sair. Chat: /scan /watch /report ou perguntas sobre segurança.")
+            self.push_screen(CommandHelpScreen())
         else:
             if key == "home":
                 self.query_one("#directory", Input).remove_class("visible")
@@ -348,8 +405,9 @@ class AtlasPanel(App):
         event.input.value = ""
         if question in {"/scan", "/watch", "/report"}:
             getattr(self, "action_" + question[1:])()
-        elif question == "/help":
-            self.query_one("#chat", RichLog).write("/scan · /watch · /report · /context (fontes) · /clear · /ai on · /ai off. Pergunte sobre um arquivo ou função.")
+        elif question in {"/help", "/commands"}:
+            self.query_one("#chat", RichLog).add_class("expanded")
+            self.query_one("#chat", RichLog).write(COMMAND_REFERENCE)
         elif question == '/context':
             self.query_one('#chat', RichLog).add_class('expanded')
             files = self.last_context.get('files', [])

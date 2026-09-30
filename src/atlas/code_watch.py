@@ -59,11 +59,16 @@ class ProjectEventHandler(FileSystemEventHandler):
     def on_any_event(self, event: FileSystemEvent) -> None:
         if event.is_directory or event.event_type not in {"created", "modified", "moved", "deleted"}:
             return
-        value = str(getattr(event, "dest_path", "") or event.src_path)
-        path = Path(value)
-        if is_ignored(path, self.project):
-            return
-        self.callback(path, str(event.event_type))
+        paths = [str(event.src_path)]
+        destination = str(getattr(event, "dest_path", "") or "")
+        if destination:
+            # The missing source triggers a full scan that verifies findings
+            # at the old path as well as inspecting the renamed file.
+            paths.append(destination)
+        for value in dict.fromkeys(paths):
+            path = Path(value)
+            if not is_ignored(path, self.project):
+                self.callback(path, str(event.event_type))
 
 
 class CodeWatchdog:

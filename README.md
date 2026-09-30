@@ -57,9 +57,12 @@ instalação abaixo.
 ## Estado da versão
 
 O fluxo arquivo alterado → debounce → scanner local → comparação → SQLite → TUI
-foi validado em Windows. A suíte local passou 2.745 testes, incluindo uma rajada
-de 1.000 eventos consolidada em um scan. Esses testes usam muitos casos sintéticos
-e não provam precisão em todos os projetos. Scanners externos continuam opcionais.
+foi validado em Windows. Em 30/09/2026, a suíte atual passou 2.753 testes em cada
+ambiente isolado com Python 3.11 e 3.14. Os resultados e limites estão em
+[`IMPLEMENTATION_REPORT.md`](IMPLEMENTATION_REPORT.md).
+Há também um teste que consolida uma rajada de 1.000 eventos em um scan. Muitos
+casos são sintéticos e não provam precisão em todos os projetos. Scanners externos
+continuam opcionais.
 
 ## Screenshot
 

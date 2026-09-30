@@ -1,6 +1,8 @@
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from atlas.threats import DefenderSnapshot, defender_snapshot, inspect_executable, persistence_snapshot, scan_with_yara
 
 
@@ -37,6 +39,21 @@ def test_defender_status_survives_unavailable_threat_history(monkeypatch):
     assert snapshot.status["AntivirusEnabled"] is True
     assert snapshot.detections == []
     assert snapshot.detail == "Threat history unavailable: PermissionError"
+
+
+@pytest.mark.parametrize("history, expected_detail", [
+    (None, ""),
+    ("invalid history response", "Threat history unavailable: TypeError"),
+])
+def test_empty_or_invalid_history_preserves_valid_defender_status(monkeypatch, history, expected_detail):
+    status = {"AntivirusEnabled": True, "RealTimeProtectionEnabled": True}
+    responses = iter([status, history])
+    monkeypatch.setattr("atlas.threats._powershell_json", lambda _script: next(responses))
+    snapshot = defender_snapshot()
+    assert snapshot.available
+    assert snapshot.status == status
+    assert snapshot.detections == []
+    assert snapshot.detail == expected_detail
 
 
 def test_executable_inspection_hashes_without_running_target(tmp_path, monkeypatch):

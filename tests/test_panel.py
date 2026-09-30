@@ -2,7 +2,7 @@ import asyncio
 import base64
 
 from atlas.database import Database
-from atlas.panel import AtlasPanel
+from atlas.panel import AtlasPanel, CommandHelpScreen
 from atlas.security_guard import assess_untrusted
 
 
@@ -27,8 +27,48 @@ def test_panel_navigation_scan_report_and_directory(tmp_path, monkeypatch):
             for button in ("settings", "tools", "help", "history", "home"):
                 await pilot.click("#nav-" + button)
                 await pilot.pause()
+                if button == "help":
+                    await pilot.press("escape")
             assert pilot.app.query_one("#command")
             pilot.app.save_screenshot(str(tmp_path / "panel.svg"))
+    asyncio.run(run())
+
+
+def test_command_list_is_available_from_help_navigation_and_chat(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "config"))
+    monkeypatch.setattr("atlas.ollama_ai.ensure_local_service", lambda: False)
+    from textual.widgets import RichLog
+
+    written = []
+    original_write = RichLog.write
+
+    def capture_write(self, content, *args, **kwargs):
+        written.append(str(content))
+        return original_write(self, content, *args, **kwargs)
+
+    monkeypatch.setattr(RichLog, "write", capture_write)
+
+    async def run():
+        async with AtlasPanel(Database(tmp_path / "help.db"), tmp_path).run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.1)
+            await pilot.click("#nav-help")
+            await pilot.pause()
+            assert isinstance(pilot.app.screen, CommandHelpScreen)
+            help_text = str(pilot.app.screen.query_one("#command-help-list").render())
+            assert "atlas scan" in help_text
+            assert "atlas malware status" in help_text
+            scroll = pilot.app.screen.query_one("#command-help-scroll")
+            assert scroll.max_scroll_y > 0
+            scroll.scroll_end(animate=False)
+            await pilot.pause()
+            assert scroll.scroll_y == scroll.max_scroll_y
+            await pilot.press("escape")
+            command = pilot.app.query_one("#command")
+            command.value = "/help"
+            command.focus()
+            await pilot.press("enter")
+            assert any("atlas monitor start" in content for content in written)
+
     asyncio.run(run())
 
 

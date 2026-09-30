@@ -64,11 +64,20 @@ def malware(
         if not snapshot.available:
             console.print(f"[yellow]Microsoft Defender unavailable:[/] {snapshot.detail}")
             raise typer.Exit(1)
-        enabled = all(snapshot.status.get(key) is not False for key in (
+        protection = [snapshot.status.get(key) for key in (
             "AMServiceEnabled", "AntivirusEnabled", "AntispywareEnabled", "RealTimeProtectionEnabled",
-        ))
-        console.print("[green]Defender ACTIVE[/]" if enabled else "[red]Defender protection incomplete[/]")
-        console.print(f"Detections in Defender history: {len(snapshot.detections)}")
+        )]
+        if all(value is True for value in protection):
+            console.print("[green]Defender ACTIVE[/]")
+        elif any(value is False for value in protection):
+            console.print("[red]Defender protection incomplete[/]")
+        else:
+            console.print("[yellow]Defender protection status unknown (incomplete telemetry)[/]")
+            raise typer.Exit(1)
+        if snapshot.detail:
+            console.print(f"[yellow]{snapshot.detail}[/]")
+        else:
+            console.print(f"Detections in Defender history: {len(snapshot.detections)}")
         return
     if action == "inspect" and path is not None:
         target = path.expanduser().resolve()

@@ -2,6 +2,19 @@
 
 All notable changes to ATLAS are documented in this file.
 
+## [Unreleased]
+
+- Add a scrollable command reference to the main panel Help menu and `/help` or
+  `/commands` in chat; document the current test count separately from v0.1.9.
+- Reconcile both paths of Windows rename events so findings at removed source
+  paths do not remain active after a verified full scan.
+- Preserve valid Defender protection telemetry when threat history is empty or
+  unavailable; show unknown protection instead of claiming active protection
+  from missing or malformed values. Show threat-history query limitations.
+- Add 15 regression and integration cases, including live Windows filesystem
+  events through the native scanner and SQLite. The final suite passed 2,753
+  tests on each of Python 3.11 and 3.14 in isolated Windows environments.
+
 ## [0.1.9] - 2026-09-25
 
 - Record actual per-scanner execution, health and file coverage; failed, partial,

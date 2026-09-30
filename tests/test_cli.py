@@ -1,11 +1,51 @@
 import json
 
+import pytest
 from typer.testing import CliRunner
 
 from atlas import __version__
 from atlas.cli import app
 
 runner = CliRunner()
+
+
+@pytest.mark.parametrize("realtime, expected, exit_code", [
+    (True, "Defender ACTIVE", 0),
+    (False, "Defender protection incomplete", 0),
+    (None, "Defender protection status unknown", 1),
+    ("true", "Defender protection status unknown", 1),
+])
+def test_defender_cli_requires_real_protection_values(monkeypatch, realtime, expected, exit_code):
+    from atlas.threats import DefenderSnapshot
+
+    status = {"AMServiceEnabled": True, "AntivirusEnabled": True, "AntispywareEnabled": True,
+              "RealTimeProtectionEnabled": realtime}
+    monkeypatch.setattr("atlas.threats.defender_snapshot", lambda: DefenderSnapshot(True, status, []))
+    result = runner.invoke(app, ["malware", "status"])
+    assert result.exit_code == exit_code
+    assert expected in result.stdout
+
+
+def test_defender_cli_does_not_claim_protection_with_missing_telemetry(monkeypatch):
+    from atlas.threats import DefenderSnapshot
+
+    monkeypatch.setattr("atlas.threats.defender_snapshot", lambda: DefenderSnapshot(True, {}, []))
+    result = runner.invoke(app, ["malware", "status"])
+    assert result.exit_code == 1
+    assert "Defender protection status unknown" in result.stdout
+
+
+def test_defender_cli_explains_unavailable_threat_history(monkeypatch):
+    from atlas.threats import DefenderSnapshot
+
+    status = dict.fromkeys(("AMServiceEnabled", "AntivirusEnabled", "AntispywareEnabled",
+                            "RealTimeProtectionEnabled"), True)
+    detail = "Threat history unavailable: PermissionError"
+    monkeypatch.setattr("atlas.threats.defender_snapshot", lambda: DefenderSnapshot(True, status, [], detail))
+    result = runner.invoke(app, ["malware", "status"])
+    assert result.exit_code == 0
+    assert detail in result.stdout
+    assert "Detections in Defender history: 0" not in result.stdout
 
 
 def test_version():

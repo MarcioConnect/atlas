@@ -41,7 +41,7 @@ def _powershell_json(script: str, timeout: int = 20) -> Any:
 def defender_snapshot() -> DefenderSnapshot:
     try:
         status = _powershell_json(
-            "Get-MpComputerStatus | Select-Object AMServiceEnabled,AntivirusEnabled,AntispywareEnabled,"
+            "Get-MpComputerStatus -ErrorAction Stop | Select-Object AMServiceEnabled,AntivirusEnabled,AntispywareEnabled,"
             "BehaviorMonitorEnabled,IoavProtectionEnabled,RealTimeProtectionEnabled,AntivirusSignatureAge,"
             "AntispywareSignatureAge,QuickScanAge,FullScanAge,AMRunningMode | ConvertTo-Json -Compress"
         )
@@ -50,16 +50,18 @@ def defender_snapshot() -> DefenderSnapshot:
         detail = ""
         try:
             detections = _powershell_json(
-                "@(Get-MpThreatDetection | Select-Object ThreatID,ActionSuccess,InitialDetectionTime,Resources) | "
-                "ConvertTo-Json -Compress"
+                "ConvertTo-Json -InputObject @(Get-MpThreatDetection -ErrorAction Stop | "
+                "Select-Object ThreatID,ActionSuccess,InitialDetectionTime,Resources) -Compress"
             )
+            if detections is None:
+                detections = []
+            elif isinstance(detections, dict):
+                detections = [detections]
+            if not isinstance(detections, list):
+                raise TypeError("invalid Defender response")
         except (OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
             detections = []
             detail = f"Threat history unavailable: {type(exc).__name__}"
-        if isinstance(detections, dict):
-            detections = [detections]
-        if not isinstance(detections, list):
-            raise TypeError("invalid Defender response")
         safe_detections = []
         for item in detections[:100]:
             if not isinstance(item, dict):
