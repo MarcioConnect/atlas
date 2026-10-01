@@ -2,6 +2,15 @@
 
 All notable changes to ATLAS are documented in this file.
 
+## [0.2.0] - 2026-10-01
+
+- Align the Python package, CLI, Windows executable metadata and download links
+  with the requested 0.2.0 release version.
+- Preserve the detection, Watchdog and Defender fixes from 0.1.10. This release
+  changes the version and packaging metadata, not detection capabilities.
+- Test release-version consistency and isolate the chat integration test from
+  the real Ollama service; wait for worker completion rather than a fixed sleep.
+
 ## [0.1.10] - 2026-09-30
 
 - Add a scrollable command reference to the main panel Help menu and `/help` or

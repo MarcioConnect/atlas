@@ -1,5 +1,26 @@
 # ATLAS implementation report
 
+## Windows executable v0.2.0 (2026-10-01)
+
+- Updated package, CLI, Windows file/product metadata, README download and
+  release-workflow default to 0.2.0. Detection capabilities are unchanged.
+- Added two regression tests comparing CLI/package/Windows versions and the
+  README download/release-workflow version.
+- The first local suite identified an intermittent chat-test failure (2,754
+  passed, one failed). The test patched the Ollama module but not the service
+  function already imported by the assistant, and relied on a fixed sleep.
+  Both references are now mocked and the test awaits worker completion.
+- The final complete local suite passed 2,755 tests on Python 3.12.14 in 36.59 s;
+  Ruff checks passed for src, tests and tools.
+- Built with Python 3.12.14 and PyInstaller 6.22.3. Compiled version and Windows
+  file/product metadata are 0.2.0. CLI/help, native detection, redaction, verified
+  resolution, saved projects, Watch once, monitor status and Markdown/HTML/JSON
+  reports passed using isolated temporary state and a path containing spaces.
+  The artificial secret was absent from reports and the actual SQLite database.
+- File size: 27503754 bytes. SHA-256:
+  `6b323d9d52c79ced179cd4109393d98842b862e767595ac3962472464fd298ad`.
+- Authenticode is NotSigned. No compiled-TUI visual inspection was performed.
+
 ## Windows executable v0.1.10 (2026-09-30)
 
 - Bumped Python package, CLI, Windows file/product metadata, README download link

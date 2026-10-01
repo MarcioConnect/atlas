@@ -57,6 +57,7 @@ def test_chat_sends_project_source_to_local_model(tmp_path, monkeypatch):
     (tmp_path / 'app.py').write_text('def add(a, b): return a + b')
     sent = []
     monkeypatch.setattr('atlas.ollama_ai.ensure_local_service', lambda: True)
+    monkeypatch.setattr('atlas.assistant.ensure_local_service', lambda: True)
     monkeypatch.setattr('atlas.ollama_ai.OllamaReviewer.availability',
                         lambda self: AIReviewStatus(True, 'test'))
 
@@ -72,8 +73,8 @@ def test_chat_sends_project_source_to_local_model(tmp_path, monkeypatch):
             field.value = 'Analise app.py'
             field.focus()
             await pilot.press('enter')
-            # Allow the background assistant worker to start on slower Windows runners.
-            await pilot.pause(3)
+            await asyncio.wait_for(pilot.app.workers.wait_for_complete(), timeout=10)
+            await pilot.pause()
             assert len(sent) == 1
             assert 'def add(a, b)' in sent[0]['prompt']
             assert '1 arquivo(s)' in str(pilot.app.query_one('#details').render())
