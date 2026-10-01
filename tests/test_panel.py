@@ -59,7 +59,7 @@ def test_command_list_is_available_from_help_navigation_and_chat(tmp_path, monke
             assert "atlas malware status" in help_text
             scroll = pilot.app.screen.query_one("#command-help-scroll")
             assert scroll.max_scroll_y > 0
-            scroll.scroll_end(animate=False)
+            scroll.scroll_end(animate=False, immediate=True)
             await pilot.pause()
             assert scroll.scroll_y == scroll.max_scroll_y
             await pilot.press("escape")

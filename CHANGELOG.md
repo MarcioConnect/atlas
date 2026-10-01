@@ -2,7 +2,7 @@
 
 All notable changes to ATLAS are documented in this file.
 
-## [Unreleased]
+## [0.1.10] - 2026-09-30
 
 - Add a scrollable command reference to the main panel Help menu and `/help` or
   `/commands` in chat; document the current test count separately from v0.1.9.
@@ -14,6 +14,10 @@ All notable changes to ATLAS are documented in this file.
 - Add 15 regression and integration cases, including live Windows filesystem
   events through the native scanner and SQLite. The final suite passed 2,753
   tests on each of Python 3.11 and 3.14 in isolated Windows environments.
+- Make the Help scrolling test synchronous after measuring its viewport so
+  hosted Windows runners do not assert before the deferred scroll executes.
+- Fail Windows builds explicitly when PyInstaller fails; allow selecting the
+  Python executable used for packaging.
 
 ## [0.1.9] - 2026-09-25
 

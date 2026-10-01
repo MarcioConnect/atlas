@@ -1,4 +1,4 @@
-# ATLAS v0.1.9
+# ATLAS v0.1.10
 
 Agente defensivo de terminal para Windows. O ATLAS observa projetos escolhidos,
 analisa código alterado com scanners locais e destaca riscos novos sem depender
@@ -25,7 +25,7 @@ de cobertura. A baseline inicial não dispara alertas antigos como novos.
 
 Quer apenas usar? Baixe o executável pronto na página da release:
 
-**[Baixar ATLAS-Security-Agent.exe — v0.1.9](https://github.com/MarcioConnect/atlas/releases/download/v0.1.9/ATLAS-Security-Agent.exe)**
+**[Baixar ATLAS-Security-Agent.exe — v0.1.10](https://github.com/MarcioConnect/atlas/releases/download/v0.1.10/ATLAS-Security-Agent.exe)**
 
 Depois, no PowerShell:
 
@@ -44,7 +44,7 @@ if ($actual -ne $expected) { throw "ATLAS checksum mismatch" }
 "ATLAS checksum OK"
 ```
 
-The v0.1.9 executable is not Authenticode-signed; Windows may show a publisher
+The v0.1.10 executable is not Authenticode-signed; Windows may show a publisher
 warning. A checksum detects corruption but does not independently prove who
 published the file. See [`docs/SIGNING.md`](docs/SIGNING.md).
 

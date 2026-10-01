@@ -1,6 +1,33 @@
 # ATLAS implementation report
 
-## Windows regression validation (2026-09-30, unreleased)
+## Windows executable v0.1.10 (2026-09-30)
+
+- Bumped Python package, CLI, Windows file/product metadata, README download link
+  and release-workflow default to 0.1.10.
+- Fixed the hosted Python 3.12 Help test: the scroll was deferred until a refresh,
+  while the assertion could run first. The test now requests an immediate scroll
+  after measuring the available viewport. Windows CI keeps running the other
+  matrix jobs when one fails so all supported versions can be inspected.
+- The complete local suite on Python 3.12.14 passed 2,753 tests in 61.19 s.
+- Built the standalone console executable with Python 3.12.14 and PyInstaller
+  6.22.3. The build script now fails explicitly on packaging errors and accepts
+  an optional Python executable argument.
+- Tested the compiled executable itself: version and Windows metadata are
+  0.1.10; CLI/help, native detection, secret redaction, verified resolution, saved
+  project configuration, Watch once, monitor status, and Markdown/HTML/JSON
+  reports passed in isolated temporary configurations. The artificial fixture
+  secret was absent from both exported reports and the actual SQLite database.
+- The compiled Defender status command returned active protection and zero
+  history records on the local machine.
+- File size: 27504162 bytes. SHA-256:
+  `c1c929b103b1e6c426033a966e08e2d99bc808850b546a5b51280a8c59758c0f`.
+- Authenticode status is `NotSigned`. A matching checksum verifies the artifact
+  bytes, not an independently authenticated publisher.
+- Interactive execution of the compiled TUI could not be exercised through this
+  automation because creating a terminal PTY was denied. Headless source-panel
+  tests passed; no visual inspection of the compiled interface is claimed.
+
+## Windows regression validation (2026-09-30)
 
 This section records validation of the September 30 command-reference UI
 changes and the fixes below. The release executable has not been rebuilt during
