@@ -10,8 +10,13 @@
   passed, one failed). The test patched the Ollama module but not the service
   function already imported by the assistant, and relied on a fixed sleep.
   Both references are now mocked and the test awaits worker completion.
-- The final complete local suite passed 2,755 tests on Python 3.12.14 in 36.59 s;
+- The final complete local suite passed 2,755 tests on Python 3.12.14 in 48.55 s;
   Ruff checks passed for src, tests and tools.
+- The first hosted CI run exposed a Watchdog integration-test race on Python
+  3.13: a later valid scan could transition NEW to EXISTING before the assertion
+  polled SQLite. Tests now capture immutable NEW transitions at completed
+  Watchdog updates and verify subsequent database state independently. They
+  still require proof of NEW, fingerprint stability and confirmed resolution.
 - Built with Python 3.12.14 and PyInstaller 6.22.3. Compiled version and Windows
   file/product metadata are 0.2.0. CLI/help, native detection, redaction, verified
   resolution, saved projects, Watch once, monitor status and Markdown/HTML/JSON

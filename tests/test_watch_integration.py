@@ -21,14 +21,27 @@ def wait_until(predicate, timeout=8):
 
 
 @pytest.fixture
-def live_watch(tmp_path, monkeypatch):
+def watch_transitions():
+    return []
+
+
+@pytest.fixture
+def live_watch(tmp_path, monkeypatch, watch_transitions):
     monkeypatch.setattr("atlas.code_scanners.shutil.which", lambda _name: None)
     settings = Settings(notifications_enabled=False)
     monkeypatch.setattr("atlas.code_scanners.Settings.load", lambda: settings)
     monkeypatch.setattr("atlas.code_watch.Settings.load", lambda: settings)
     project = tmp_path / "Projeto com espaços"
     project.mkdir()
-    watcher = CodeWatchdog(project, Database(tmp_path / "history.sqlite"), debounce_seconds=0.15)
+    def record_completed_update(state):
+        if state.phase == "IDLE" and state.last_scan_at is not None:
+            watch_transitions.extend(
+                (finding.rule_id, finding.fingerprint, finding.state, finding.file_path)
+                for finding in state.new
+            )
+
+    watcher = CodeWatchdog(project, Database(tmp_path / "history.sqlite"), debounce_seconds=0.15,
+                          on_update=record_completed_update)
     yield watcher
     watcher.stop()
     watcher.database.engine.dispose()
@@ -44,7 +57,7 @@ def active_eval_findings(watcher):
             if item.rule_id == "python-eval" and item.state != "RESOLVED"]
 
 
-def test_live_native_watch_detects_deduplicates_and_confirms_fix(live_watch):
+def test_live_native_watch_detects_deduplicates_and_confirms_fix(live_watch, watch_transitions):
     watcher = live_watch
     target = watcher.project / "app.py"
     target.write_text("value = user_input\n", encoding="utf-8")
@@ -55,12 +68,13 @@ def test_live_native_watch_detects_deduplicates_and_confirms_fix(live_watch):
     target.write_text("value = eval(user_input)\n", encoding="utf-8")
     wait_until(lambda: active_eval_findings(watcher))
     initial = active_eval_findings(watcher)[0]
-    assert initial.state == "NEW"
+    wait_until(lambda: ("python-eval", initial.fingerprint, "NEW", str(target.resolve())) in watch_transitions)
     wait_until(lambda: completed_scan(watcher))
     previous_scan = completed_scan(watcher).id
 
     target.write_text("# unrelated header\nvalue = eval(user_input)\n", encoding="utf-8")
     wait_until(lambda: completed_scan(watcher, previous_scan))
+    wait_until(lambda: any(item.line == 2 and item.state == "EXISTING" for item in active_eval_findings(watcher)))
     findings = active_eval_findings(watcher)
     assert len(findings) == 1
     assert findings[0].fingerprint == initial.fingerprint
@@ -94,7 +108,7 @@ def test_live_native_watch_reconciles_both_paths_on_rename(live_watch, destinati
                for item in watcher.database.code_findings(str(watcher.project)))
 
 
-def test_live_native_watch_detects_file_moved_into_analyzed_scope(live_watch):
+def test_live_native_watch_detects_file_moved_into_analyzed_scope(live_watch, watch_transitions):
     watcher = live_watch
     dependency = watcher.project / "node_modules" / "sample.py"
     dependency.parent.mkdir()
@@ -107,7 +121,8 @@ def test_live_native_watch_detects_file_moved_into_analyzed_scope(live_watch):
     dependency.rename(target)
     wait_until(lambda: active_eval_findings(watcher))
     assert active_eval_findings(watcher)[0].file_path == str(target.resolve())
-    assert active_eval_findings(watcher)[0].state == "NEW"
+    fingerprint = active_eval_findings(watcher)[0].fingerprint
+    wait_until(lambda: ("python-eval", fingerprint, "NEW", str(target.resolve())) in watch_transitions)
 
 
 def test_live_native_watch_confirms_deleted_source(live_watch):
@@ -137,7 +152,7 @@ def test_live_native_watch_handles_editor_atomic_save(live_watch):
     assert active_eval_findings(watcher) == []
 
 
-def test_live_native_watch_retains_changes_received_during_scan(live_watch):
+def test_live_native_watch_retains_changes_received_during_scan(live_watch, watch_transitions):
     watcher = live_watch
     target = watcher.project / "app.py"
     target.write_text("value = user_input\n", encoding="utf-8")
@@ -173,7 +188,8 @@ def test_live_native_watch_retains_changes_received_during_scan(live_watch):
         assert len(calls) == 1
         release.set()
         wait_until(lambda: active_eval_findings(watcher))
-        assert active_eval_findings(watcher)[0].state == "NEW"
+        fingerprint = active_eval_findings(watcher)[0].fingerprint
+        wait_until(lambda: ("python-eval", fingerprint, "NEW", str(target.resolve())) in watch_transitions)
         assert len(calls) >= 2
         assert not any(simultaneous)
     finally:
