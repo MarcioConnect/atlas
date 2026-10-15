@@ -17,6 +17,7 @@ from typing import Any
 from atlas.config import Settings
 from atlas.file_scope import ignored_name, scoped_files
 from atlas.models import Severity
+from atlas.project_config import load_project_overrides
 from atlas.security import SKIP_DIRS, is_secret_candidate, redact
 from atlas.security_guard import LEVELS, assess_untrusted
 
@@ -336,13 +337,16 @@ class LocalCodeScanners:
                 execution.scope = "FULL" if changed is None else "INCREMENTAL"
         self._finalize_execution_status(result, targets, changed)
         settings = Settings.load()
+        overrides = load_project_overrides(self.project)
         ignored = {str(rule).casefold() for rule in settings.ignored_rules}
+        ignored |= {str(rule).casefold() for rule in overrides.get("ignored_rules", [])}
+        risk_overrides = {**settings.risk_overrides, **(overrides.get("risk_overrides") or {})}
         unique: dict[str, NormalizedFinding] = {}
         for item in result.findings:
             item.finalize(self.project)
             if item.rule_id.casefold() in ignored or item.scanner.casefold() in ignored:
                 continue
-            override = settings.risk_overrides.get(item.rule_id) or settings.risk_overrides.get(item.scanner)
+            override = risk_overrides.get(item.rule_id) or risk_overrides.get(item.scanner)
             if override:
                 item.severity = normalize_severity(override)
             suppression = next((entry for entry in settings.finding_suppressions

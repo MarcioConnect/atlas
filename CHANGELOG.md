@@ -2,6 +2,29 @@
 
 All notable changes to ATLAS are documented in this file.
 
+## [Unreleased]
+
+- Add `atlas init`: a first-run assistant that discovers local Git repositories,
+  lets you choose what to watch, runs a first scan, and optionally registers the
+  background monitor. The panel also shows a first-run hint.
+- Add finding suppression: `atlas config --suppress-rule/--file/--days/--reason`,
+  `--list-suppressions`, and an in-TUI `X` dialog in the Watchdog. Suppressed
+  findings are excluded from new alerts and from `--fail-on`.
+- Add `atlas doctor` to diagnose Python, optional scanners, local Ollama, the
+  resident monitor, the Windows login task, and the local database, with
+  interactive fixes when possible.
+- Add a redacted resident-monitor log (`%LOCALAPPDATA%\ATLAS\logs\monitor.log`,
+  rotated once) and `atlas monitor logs [--limit N] [--follow]`.
+- Add `atlas scan --fail-on SEVERITY` (exit code 2) for CI gating, and
+  `atlas report --format sarif` producing SARIF 2.1.0.
+- Add `atlas install-hook` to install a Git `pre-commit` hook that runs the scan.
+- Add per-project `.atlas.toml` overrides for `ignored_rules` and
+  `risk_overrides`, merged with user settings for every scan.
+- Remove the unused `atlas agent`-backed `ask` module and the deprecated
+  `agent_model` setting; translate the Watchdog TUI menu and status to pt-BR.
+- Harden the panel AI-status test to wait for the worker instead of a fixed
+  sleep. Suite now passes 2,794 tests.
+
 ## [0.2.0] - 2026-10-01
 
 - Align the Python package, CLI, Windows executable metadata and download links

@@ -57,8 +57,8 @@ instalação abaixo.
 ## Estado da versão
 
 O fluxo arquivo alterado → debounce → scanner local → comparação → SQLite → TUI
-foi validado em Windows. Em 30/09/2026, a suíte atual passou 2.753 testes em cada
-ambiente isolado com Python 3.11 e 3.14. Os resultados e limites estão em
+foi validado em Windows. A suíte atual passa 2.794 testes em cada ambiente
+isolado com Python 3.11 e 3.14. Os resultados e limites estão em
 [`IMPLEMENTATION_REPORT.md`](IMPLEMENTATION_REPORT.md).
 Há também um teste que consolida uma rajada de 1.000 eventos em um scan. Muitos
 casos são sintéticos e não provam precisão em todos os projetos. Scanners externos
@@ -222,6 +222,84 @@ normal scans and its visibility depends on Windows policy and permissions.
 When `winotify` is installed, new findings also generate a Windows desktop
 notification; otherwise the TUI remains the source of truth.
 
+## First run and diagnostics
+
+On a fresh install, ATLAS can find your Git repositories, choose what to watch,
+run a first scan, and optionally register the background monitor in one step:
+
+```powershell
+atlas init
+atlas init --path "C:\Meu Projeto" --yes --no-scan
+```
+
+When something does not work, run `atlas doctor` to check Python, optional
+scanners, local Ollama, the resident monitor, the Windows login task, and the
+local database. Failures are listed with a suggested fix; `atlas doctor --no-fix`
+only reports without prompting.
+
+The resident monitor writes a redacted log to
+`%LOCALAPPDATA%\ATLAS\logs\monitor.log` (rotated once to `monitor.log.old`).
+Inspect it with:
+
+```powershell
+atlas monitor logs
+atlas monitor logs --limit 200 --follow
+```
+
+## Suppressing findings
+
+Accepted-risk findings can be suppressed from the CLI or directly in the TUI.
+A suppression records the fingerprint, a redacted reason, and an expiry.
+
+```powershell
+atlas config --suppress-rule python-eval --file app.py --days 30 --reason "revisado"
+atlas config --list-suppressions
+```
+
+In the Watchdog TUI, select a finding and press `X` to open the suppression
+dialog (reason required). Suppressed findings no longer fail a build and are
+excluded from new alerts.
+
+## CI integration
+
+`atlas scan --fail-on` returns exit code `2` when a finding meets the severity
+threshold, so it can gate a pipeline:
+
+```powershell
+atlas scan . --fail-on HIGH
+atlas scan . --fail-on HIGH --format json
+```
+
+For GitHub code scanning, generate SARIF and upload it:
+
+```powershell
+atlas report --format sarif --project . --output .\reports
+```
+
+Install a Git `pre-commit` hook that blocks commits with findings at or above a
+threshold:
+
+```powershell
+atlas install-hook --project .
+atlas install-hook --fail-on MEDIUM --force
+```
+
+Remove `.git/hooks/pre-commit` to disable the hook.
+
+## Per-project configuration
+
+A repository can tune the scanner without touching the global settings by
+adding a `.atlas.toml` file at its root:
+
+```toml
+[scan]
+ignored_rules = ["python-eval", "B602"]
+risk_overrides = { B602 = "LOW" }
+```
+
+Project overrides are merged with the user settings and applied to every scan
+(CLI and Watchdog). Invalid files are ignored, never fatal.
+
 ## Generate Report
 
 Use **4. Generate Report** in the launcher (or activate it with the keyboard)
@@ -240,6 +318,7 @@ Reports can also be generated directly from the CLI:
 atlas report --format md
 atlas report --format html
 atlas report --format json
+atlas report --format sarif
 atlas report --project "C:\Meu Projeto" --output "C:\Relatorios"
 ```
 
@@ -291,7 +370,10 @@ This does not involve an LLM or AI tokens.
 
 ```powershell
 atlas                         # native ATLAS dashboard + conversation TUI
+atlas init                    # assistente de primeiro uso: acha projetos Git, monitora e faz o 1º scan
+atlas doctor                  # diagnostica scanners, Ollama, monitor, tarefa de login e banco
 atlas scan [PROJECT]          # análise pontual local; --format json opcional
+atlas scan [PROJECT] --fail-on HIGH   # retorna código 2 quando há severidade >= limite (CI)
 atlas agent                   # conversa do agente ATLAS no terminal
 atlas agent --advanced        # alias compatível para o painel integrado
 atlas dashboard               # system security dashboard
@@ -304,8 +386,11 @@ atlas monitor start           # background events + code Watchdogs for all confi
 atlas monitor install         # start now and register ATLAS for Windows login
 atlas monitor status
 atlas monitor events
+atlas monitor logs --follow   # acompanha o log do monitor residente
 atlas monitor stop
 atlas config                  # mostra caminhos, regras ignoradas e severidades
+atlas report --format sarif   # relatório SARIF 2.1.0 para integração com CI
+atlas install-hook            # instala hook pre-commit que roda o scan
 atlas start                   # controlled operational session
 atlas stop
 atlas history

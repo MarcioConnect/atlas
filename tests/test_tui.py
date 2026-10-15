@@ -1,7 +1,10 @@
 import asyncio
+import json
 
 from atlas.code_scanners import ScannerAvailability
 from atlas.database import Database
+from atlas.models import CodeFinding
+from atlas.suppression_modal import SuppressionModal
 from atlas.tui import run_tui
 from atlas.watch_tui import WatchdogApp, WatchScreen
 
@@ -37,11 +40,46 @@ def test_watchdog_status_does_not_call_partial_scan_safe(tmp_path):
     screen = WatchScreen(tmp_path, Database(tmp_path / "partial-tui.sqlite"))
     screen.watchdog.state.status = "SAFE"
     screen.watchdog.state.availability = [ScannerAvailability("Semgrep", False, "install semgrep")]
-    assert "PARTIAL COVERAGE" in screen._status()
+    assert "COBERTURA PARCIAL" in screen._status()
 
 
 def test_watchdog_status_limits_incremental_clean_claim(tmp_path):
     screen = WatchScreen(tmp_path, Database(tmp_path / "incremental-tui.sqlite"))
     screen.watchdog.state.status = "SAFE"
     screen.watchdog.state.scan_scope = "INCREMENTAL"
-    assert "CHANGED SCOPE" in screen._status()
+    assert "ESCOPO ALTERADO" in screen._status()
+
+
+def test_watchdog_tui_suppresses_selected_finding(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "config"))
+    monkeypatch.setattr("atlas.watch_tui.CodeWatchdog.start", lambda self, initial_scan=True: None)
+    monkeypatch.setattr("atlas.watch_tui.CodeWatchdog.stop", lambda self: None)
+    database = Database(tmp_path / "suppress.sqlite")
+    project = tmp_path
+    with database.session() as session:
+        session.add(CodeFinding(
+            project_path=str(project.resolve()), fingerprint="x" * 64, scanner="ATLAS Native",
+            rule_id="python-eval", file_path=str(project / "app.py"), line=1, severity="HIGH",
+            description="Dynamic execution", evidence="omitted", recommendation="review", state="NEW",
+        ))
+        session.commit()
+
+    async def run():
+        async with WatchdogApp(project, database).run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.1)
+            screen = pilot.app.screen
+            screen.current_view = "all_findings"
+            await screen.show_view()
+            await pilot.pause(0.1)
+            assert screen.visible_findings
+            await pilot.press("x")
+            await pilot.pause(0.1)
+            assert isinstance(pilot.app.screen, SuppressionModal)
+            pilot.app.screen.query_one("#suppression-reason").value = "falso positivo revisado"
+            await pilot.click("#suppression-confirm")
+            await pilot.pause(0.1)
+
+    asyncio.run(run())
+    saved = json.loads((tmp_path / "config" / "ATLAS" / "settings.json").read_text(encoding="utf-8"))
+    assert saved["finding_suppressions"][0]["fingerprint"] == "x" * 64
+    assert database.code_findings(str(project.resolve()))[0].suppressed is True

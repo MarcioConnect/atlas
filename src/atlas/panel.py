@@ -15,24 +15,32 @@ from textual.widgets import Button, DataTable, Footer, Input, RichLog, Static
 from atlas import __version__
 from atlas.assistant import AssistantReply, ProjectAssistant
 from atlas.code_watch import CodeWatchdog
-from atlas.config import Settings
+from atlas.config import Settings, is_first_run
 from atlas.database import Database
 from atlas.models import CodeScan
 from atlas.privacy import sanitize_text
 from atlas.report import generate_markdown_report
 from atlas.security import redact, score_breakdown
+from atlas.suppression_modal import SuppressionModal
+from atlas.suppressions import add_suppression
 from atlas.terminal_art import AtlasPortrait, AtlasWordmark
 
 COMMAND_REFERENCE = """ATLAS — GUIA RÁPIDO DE COMANDOS
 
+PRIMEIROS PASSOS
+atlas init                                 Assistente: acha projetos, monitora e faz o 1º scan.
+atlas doctor                               Diagnostica scanners, Ollama, monitor e banco.
+
 PROJETOS E CÓDIGO
 atlas scan [PASTA] [--format table|json]   Analisa um projeto uma vez.
+atlas scan [PASTA] --fail-on HIGH          Retorna código 2 se houver severidade >= limite (CI).
 atlas watch [PASTA] [--once] [--all]       Observa projetos; --once executa e sai.
 atlas watch --ai                          Habilita revisão Ollama somente sob demanda.
+atlas install-hook                         Gera o hook pre-commit que roda o scan.
 
 SEGURANÇA E RELATÓRIOS
 atlas security [--path PASTA]              Analisa a configuração do host.
-atlas report --format md|html|json         Salva relatório no Downloads.
+atlas report --format md|html|json|sarif   Salva relatório no Downloads (SARIF para CI).
 atlas malware status                       Consulta o estado do Defender.
 atlas malware scan PASTA                   Solicita scan Defender, sem remediação.
 atlas malware inspect ARQUIVO.exe          Hash e assinatura; não executa arquivo.
@@ -40,9 +48,12 @@ atlas malware inspect ARQUIVO.exe          Hash e assinatura; não executa arqui
 MONITOR RESIDENTE E HISTÓRICO
 atlas monitor start [--watch PASTA]         Inicia monitor em segundo plano.
 atlas monitor status|events|stop            Consulta, lista eventos ou encerra.
+atlas monitor logs [--follow] [--limit N]   Mostra o log do monitor residente.
 atlas monitor install                      Inicia agora e configura no login.
 atlas monitor start --startup              Alternativa para iniciar com o Windows.
 atlas config --add-path PASTA              Salva um projeto para monitoramento.
+atlas config --suppress-rule REGRA --file CAMINHO [--days N]  Suprime por regra/arquivo.
+atlas config --list-suppressions            Lista supressões ativas em tabela.
 atlas history                              Mostra sessões e eventos registrados.
 atlas start --watch PASTA                  Registra uma sessão de trabalho.
 atlas stop                                 Fecha a sessão e salva o resumo.
@@ -54,7 +65,7 @@ atlas agent [--model MODELO]                Abre o chat ATLAS/Ollama.
 /context  /clear  /ai on  /ai off            Fontes, histórico local e preferência IA.
 
 ATALHOS DO PAINEL
-Ctrl+S scan · Ctrl+W Watch · Ctrl+R relatório · Ctrl+Q sair · Esc fechar esta ajuda
+Ctrl+S scan · Ctrl+W Watch · Ctrl+R relatório · X suprimir finding · Ctrl+Q sair · Esc fechar ajuda
 
 Use `atlas --help` ou `atlas COMANDO --help` para ver todas as opções e argumentos."""
 
@@ -83,7 +94,8 @@ class CommandHelpScreen(ModalScreen[None]):
 class AtlasPanel(App):
     TITLE = "ATLAS | Security Agent"
     BINDINGS = [("ctrl+q", "quit", "Sair"), ("ctrl+s", "scan", "Scan"),
-                ("ctrl+r", "report", "Relatório"), ("ctrl+w", "watch", "Watch")]
+                ("ctrl+r", "report", "Relatório"), ("ctrl+w", "watch", "Watch"),
+                ("x", "suppress", "Suprimir")]
     CSS = """
     Screen { background: #000000; color: #d4d4d4; }
     Static, RichLog, DataTable { background: #000000; }
@@ -196,6 +208,12 @@ class AtlasPanel(App):
         self.query_one("#nav-home").add_class("selected")
         self.query_one("#scans", DataTable).add_columns("#", "DATA/HORA", "DIRETÓRIO", "STATUS")
         self.query_one("#chat", RichLog).write("ATLAS integrado ao painel. Respostas locais disponíveis.")
+        if is_first_run():
+            self.query_one("#chat", RichLog).write(
+                "Primeiro uso detectado. Rode `atlas init` para localizar seus projetos git, "
+                "escolher o que monitorar e executar o primeiro scan."
+            )
+            self.status("Primeiro uso: execute `atlas init` para configurar o ATLAS passo a passo.")
         self.refresh_data()
         self.set_interval(2, self.refresh_data)
         self.run_worker(self._check_ai, thread=True)
@@ -365,6 +383,24 @@ class AtlasPanel(App):
     def _watch_finished(self, message):
         self.watch_transition = False
         self.status(message)
+
+    def action_suppress(self):
+        findings = [item for item in self.database.code_findings(str(self.project)) if item.state != "RESOLVED"]
+        if not findings:
+            self.status("Nenhum finding ativo para suprimir neste projeto.")
+            return
+        self.push_screen(SuppressionModal(findings), self._apply_suppression)
+
+    def _apply_suppression(self, result):
+        if not result:
+            return
+        item = result["finding"]
+        settings = Settings.load()
+        add_suppression(settings, item.fingerprint, result["reason"], result["days"])
+        settings.save()
+        self.database.apply_suppression(item.fingerprint, result["reason"])
+        self.status(f"Finding suprimido por {result['days']} dia(s): {item.rule_id}.")
+        self.refresh_data()
 
     def action_report(self):
         self.run_worker(self._report, thread=True, group="report", exclusive=True)

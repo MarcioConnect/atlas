@@ -156,3 +156,36 @@ def test_scan_command_supports_json_and_reports_partial_coverage(tmp_path, monke
     payload = json.loads(result.stdout)
     assert payload["projects"][0]["scan"]["complete"] is False
     assert payload["projects"][0]["scan"]["unavailable_scanners"]
+
+
+def _scan_fixture(tmp_path, monkeypatch, source: str):
+    from atlas.config import Settings
+    from atlas.database import Database
+
+    project = tmp_path / "ci project"
+    project.mkdir()
+    (project / "app.py").write_text(source, encoding="utf-8")
+    database = Database(tmp_path / "ci.sqlite")
+    monkeypatch.setattr("atlas.cli.Database", lambda: database)
+    monkeypatch.setattr("atlas.code_scanners.shutil.which", lambda _name: None)
+    monkeypatch.setattr("atlas.code_watch.Settings.load", lambda: Settings())
+    monkeypatch.setattr("atlas.code_scanners.Settings.load", lambda: Settings())
+    return project
+
+
+def test_scan_fail_on_triggers_exit_code(tmp_path, monkeypatch):
+    project = _scan_fixture(tmp_path, monkeypatch, "eval(user_input)\n")
+    result = runner.invoke(app, ["scan", str(project), "--fail-on", "HIGH", "--format", "json"])
+    assert result.exit_code == 2, result.stdout
+
+
+def test_scan_fail_on_below_threshold_does_not_fail(tmp_path, monkeypatch):
+    project = _scan_fixture(tmp_path, monkeypatch, "eval(user_input)\n")
+    result = runner.invoke(app, ["scan", str(project), "--fail-on", "CRITICAL"])
+    assert result.exit_code == 0, result.stdout
+
+
+def test_scan_fail_on_ignores_clean_project(tmp_path, monkeypatch):
+    project = _scan_fixture(tmp_path, monkeypatch, "print('hello')\n")
+    result = runner.invoke(app, ["scan", str(project), "--fail-on", "LOW"])
+    assert result.exit_code == 0, result.stdout

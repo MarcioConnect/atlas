@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 
 from atlas.database import Database
@@ -6,7 +7,9 @@ from atlas.report import (
     generate_html_report,
     generate_json_report,
     generate_markdown_report,
+    generate_sarif_report,
     render_json_report,
+    render_sarif_report,
 )
 
 
@@ -149,6 +152,51 @@ def test_html_report_escapes_untrusted_finding_text(tmp_path):
     page = generate_html_report(db, tmp_path.resolve(), tmp_path / "html").read_text(encoding="utf-8")
     assert "<script>alert(1)</script>" not in page
     assert "&lt;script&gt;" in page
+
+
+def test_sarif_report_maps_findings_and_excludes_inactive(tmp_path):
+    db = Database(tmp_path / "sarif.sqlite")
+    project = (tmp_path / "Project").resolve()
+    project.mkdir()
+    scan = db.begin_code_scan(str(project))
+    db.finish_code_scan(scan.id, files_analyzed=1, changes=0, status="FINDINGS", scanners="[]")
+    with db.session() as session:
+        session.add(CodeFinding(project_path=str(project), fingerprint="s" * 64, scanner="ATLAS Native",
+                                rule_id="python-eval", file_path=str(project / "app.py"), line=7,
+                                severity="HIGH", description="Dynamic execution", evidence="omitted",
+                                recommendation="review", state="NEW"))
+        session.add(CodeFinding(project_path=str(project), fingerprint="t" * 64, scanner="ATLAS Native",
+                                rule_id="python-eval", file_path=str(project / "old.py"), line=2,
+                                severity="HIGH", description="Resolved issue", evidence="omitted",
+                                recommendation="review", state="RESOLVED"))
+        session.commit()
+
+    payload = json.loads(render_sarif_report(db, project))
+    assert payload["version"] == "2.1.0"
+    run = payload["runs"][0]
+    assert run["tool"]["driver"]["name"] == "ATLAS Security Agent"
+    results = run["results"]
+    assert len(results) == 1
+    assert results[0]["ruleId"] == "python-eval"
+    assert results[0]["level"] == "error"
+    location = results[0]["locations"][0]["physicalLocation"]
+    assert location["artifactLocation"]["uri"] == "app.py"
+    assert location["region"]["startLine"] == 7
+    assert run["tool"]["driver"]["rules"][0]["id"] == "python-eval"
+
+
+def test_sarif_report_includes_system_findings_and_writes_file(tmp_path):
+    db = Database(tmp_path / "sarif-system.sqlite")
+    db.save_scan(Scan(hostname="host", score=60, findings=[Finding(
+        check_id="secret", title="Credential exposed", severity="MEDIUM", evidence="safe",
+        risk="risk", component="config.py", recommendation="rotate", fingerprint="abc")]))
+    payload = json.loads(render_sarif_report(db))
+    levels = {item["ruleId"]: item["level"] for item in payload["runs"][0]["results"]}
+    assert levels["secret"] == "warning"
+
+    path = generate_sarif_report(db, output_dir=tmp_path / "reports")
+    assert path.suffix == ".sarif"
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == "2.1.0"
 
 
 def test_consolidated_report_lists_projects_and_file_changes(tmp_path, monkeypatch):

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from datetime import UTC, datetime, timedelta
+import time
 from pathlib import Path
 
 import typer
@@ -29,6 +29,22 @@ app = typer.Typer(
     invoke_without_command=True,
 )
 console = Console()
+SEVERITY_ORDER = [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW, Severity.INFO]
+
+
+def _exceeds_threshold(fail_on: Severity | None, findings) -> bool:
+    """True when any finding's severity is at or above the configured threshold."""
+    if not fail_on:
+        return False
+    threshold = SEVERITY_ORDER.index(fail_on)
+
+    def rank(item) -> int:
+        try:
+            return SEVERITY_ORDER.index(Severity(item.severity))
+        except (ValueError, AttributeError, KeyError):
+            return 0
+
+    return any(rank(item) <= threshold for item in findings)
 
 
 def _monitor_roots(paths: list[Path] | None) -> list[Path]:
@@ -141,6 +157,146 @@ def dashboard() -> None:
     run_tui()
 
 
+@app.command()
+def doctor(
+    fix: bool = typer.Option(True, "--fix/--no-fix", help="Oferece correções interativas quando possível."),
+) -> None:
+    """Diagnostica o ambiente e aponta correções para problemas comuns."""
+    from atlas.doctor import run_doctor
+
+    failures, _ = run_doctor(interactive=fix, console=console)
+    if failures:
+        raise typer.Exit(1)
+
+
+@app.command("install-hook")
+def install_hook(
+    project: Path = typer.Option(Path.cwd(), "--project", "-p", help="Repositório Git; padrão pasta atual."),
+    fail_on: Severity = typer.Option(Severity.HIGH, "--fail-on", case_sensitive=False,
+                                     help="Severidade que bloqueia o commit."),
+    force: bool = typer.Option(False, "--force", help="Substitui um hook existente."),
+) -> None:
+    """Instala um hook de pre-commit que roda o scan antes de cada commit."""
+    from atlas.hooks import install_pre_commit_hook
+
+    installed, detail = install_pre_commit_hook(project, fail_on.value, force)
+    if not installed:
+        console.print(f"[red]{detail}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]Hook de pre-commit instalado:[/] {detail}")
+    console.print(f"Commits serão bloqueados com findings de severidade >= [b]{fail_on.value}[/b].")
+
+
+def _scan_once(project: Path, database: Database):
+    from atlas.code_watch import CodeWatchdog
+
+    watchdog = CodeWatchdog(project, database)
+    watchdog.scan_now(None, baseline=True)
+    return watchdog
+
+
+def _print_scan_summary(project: Path, watchdog) -> None:
+    active = [item for item in watchdog.state.new + watchdog.state.existing if item.state != "RESOLVED"]
+    counts: dict[str, int] = {}
+    for item in active:
+        counts[item.severity] = counts.get(item.severity, 0) + 1
+    console.print(
+        f"[green]Scan concluído:[/] {project}\n"
+        f"  Arquivos analisados: {watchdog.state.files_analyzed} · saúde: {watchdog.state.health}\n"
+        f"  Findings: {len(active)} "
+        + " · ".join(f"{level}={counts[level]}" for level in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO") if counts.get(level))
+    )
+
+
+@app.command()
+def init(
+    path: list[Path] | None = typer.Option(None, "--path", "-p", help="Projeto explícito; pode ser repetido."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Aceita os padrões sem perguntar."),
+    scan: bool = typer.Option(True, "--scan/--no-scan", help="Executa o primeiro scan dos projetos escolhidos."),
+    monitor: bool | None = typer.Option(None, "--monitor/--no-monitor", help="Registra o monitor no login do Windows."),
+    depth: int = typer.Option(3, "--depth", min=1, max=6, help="Profundidade da busca por projetos git."),
+) -> None:
+    """Assistente de primeiro uso: encontra projetos, monitora e faz o primeiro scan."""
+    from atlas.onboarding import add_watch_paths, discover_git_projects
+
+    settings = Settings.load()
+    projects: list[Path] = []
+    if path:
+        for item in path:
+            resolved = item.expanduser().resolve()
+            if not resolved.is_dir():
+                raise typer.BadParameter(f"Diretório inexistente: {resolved}")
+            projects.append(resolved)
+    else:
+        console.print("[cyan]Procurando projetos git em Documents, Desktop, OneDrive e no perfil do usuário…[/cyan]")
+        projects = discover_git_projects(max_depth=depth)
+        if not projects:
+            console.print("[yellow]Nenhum projeto git encontrado automaticamente.[/yellow]")
+        else:
+            table = Table(title=f"{len(projects)} projeto(s) encontrados")
+            table.add_column("#")
+            table.add_column("Projeto")
+            for index, project in enumerate(projects, 1):
+                table.add_row(str(index), str(project))
+            console.print(table)
+        if not yes:
+            typed = typer.prompt(
+                "Digite um caminho adicional ou pressione Enter para continuar",
+                default="", show_default=False,
+            ).strip()
+            if typed:
+                extra = Path(typed).expanduser().resolve()
+                if extra.is_dir():
+                    projects.append(extra)
+                else:
+                    console.print(f"[red]Caminho inválido:[/] {extra}")
+    if not projects:
+        raise typer.BadParameter("Nenhum projeto para monitorar. Informe --path C:\\Projeto ou crie um repositório git.")
+
+    selected = list(projects)
+    if not yes and len(projects) > 1:
+        answer = typer.prompt(
+            "Quais monitorar? Números separados por vírgula, 'a' para todos",
+            default="a",
+        ).strip()
+        if answer and not answer.casefold().startswith("a"):
+            chosen: list[Path] = []
+            for token in answer.split(","):
+                token = token.strip()
+                if token.isdigit() and 1 <= int(token) <= len(projects):
+                    chosen.append(projects[int(token) - 1])
+            if chosen:
+                selected = chosen
+            else:
+                console.print("[yellow]Seleção inválida; usando todos os projetos.[/yellow]")
+
+    added = add_watch_paths(settings, selected)
+    settings.save()
+    console.print("[green]Projetos salvos em watch_paths:[/] " + ", ".join(str(item) for item in selected))
+    if not added:
+        console.print("[dim]Todos já estavam configurados.[/dim]")
+
+    if scan:
+        database = Database()
+        for project in selected:
+            with console.status(f"[cyan]ATLAS analisando {project.name}…[/cyan]"):
+                watchdog = _scan_once(project, database)
+            _print_scan_summary(project, watchdog)
+
+    want_monitor = monitor
+    if want_monitor is None and not yes:
+        want_monitor = typer.confirm("Registrar o monitor para iniciar no login do Windows?", default=False)
+    if want_monitor:
+        from atlas.monitor import install_startup
+
+        installed, detail = install_startup(selected)
+        if installed:
+            console.print("[green]Monitor registrado no login.[/green]")
+        else:
+            console.print(f"[yellow]Não foi possível registrar no login:[/] {detail}")
+    console.print("[bold cyan]Pronto![/] Use [b]atlas[/b] para abrir o painel ou [b]atlas watch[/b] para monitorar.")
+
+
 @app.command("config")
 def configure(
     add_path: Path | None = typer.Option(None, "--add-path", help="Adiciona um projeto ao monitoramento salvo."),
@@ -148,11 +304,18 @@ def configure(
     ignore_rule: str | None = typer.Option(None, "--ignore-rule", help="Ignora uma regra ou scanner."),
     unignore_rule: str | None = typer.Option(None, "--unignore-rule", help="Remove uma regra da lista ignorada."),
     suppress_finding: str | None = typer.Option(None, "--suppress-finding", help="Suprime FINGERPRINT=MOTIVO por prazo definido."),
+    suppress_rule: str | None = typer.Option(None, "--suppress-rule", help="Suprime a ocorrência ativa mais recente de uma regra."),
+    suppress_file: str | None = typer.Option(None, "--file", help="Arquivo/caminho relativo quando usado com --suppress-rule."),
+    suppress_reason: str | None = typer.Option(None, "--reason", help="Motivo da supressão por regra."),
+    list_suppressions: bool = typer.Option(False, "--list-suppressions", help="Lista supressões em tabela legível."),
     unsuppress_finding: str | None = typer.Option(None, "--unsuppress-finding", help="Remove supressão pela fingerprint."),
     suppression_days: int = typer.Option(30, "--suppression-days", min=1, max=3650, help="Validade da supressão em dias."),
+    days: int = typer.Option(30, "--days", min=1, max=3650, help="Validade da supressão por regra, em dias."),
     risk: str | None = typer.Option(None, "--risk", help="Altera severidade no formato REGRA=HIGH."),
 ) -> None:
     """Mostra ou atualiza a configuração persistente do ATLAS."""
+    from atlas.suppressions import add_suppression, remove_suppression
+
     settings = Settings.load()
     if add_path:
         resolved = add_path.expanduser().resolve()
@@ -171,13 +334,25 @@ def configure(
         fingerprint, reason = fingerprint.strip(), reason.strip()
         if not separator or len(fingerprint) != 64 or not reason:
             raise typer.BadParameter("Use --suppress-finding FINGERPRINT=MOTIVO com justificativa.")
-        expires = (datetime.now(UTC) + timedelta(days=suppression_days)).isoformat()
-        settings.finding_suppressions = [item for item in settings.finding_suppressions
-                                         if item.get("fingerprint") != fingerprint]
-        settings.finding_suppressions.append({"fingerprint": fingerprint, "reason": reason[:500], "expires_at": expires})
+        add_suppression(settings, fingerprint, reason, suppression_days)
+        Database().apply_suppression(fingerprint, reason)
+    if suppress_rule:
+        database = Database()
+        finding = database.latest_code_finding_by_rule(suppress_rule, suppress_file)
+        if finding is None:
+            hint = f" no arquivo '{suppress_file}'" if suppress_file else ""
+            raise typer.BadParameter(
+                f"Nenhum finding ativo encontrado para a regra '{suppress_rule}'{hint}. Use atlas scan antes."
+            )
+        reason = (suppress_reason or f"Suprimido por regra via CLI: {suppress_rule}").strip()
+        add_suppression(settings, finding.fingerprint, reason, days)
+        database.apply_suppression(finding.fingerprint, reason)
+        shown = Path(finding.file_path).name
+        console.print(
+            f"[green]Supressão aplicada:[/] {finding.rule_id} · {shown}:{finding.line or '-'} · {days} dia(s)"
+        )
     if unsuppress_finding:
-        settings.finding_suppressions = [item for item in settings.finding_suppressions
-                                         if item.get("fingerprint") != unsuppress_finding]
+        remove_suppression(settings, unsuppress_finding)
     if risk:
         try:
             rule, severity = (part.strip() for part in risk.split("=", 1))
@@ -187,8 +362,13 @@ def configure(
         if not rule or severity not in {item.value for item in Severity}:
             raise typer.BadParameter("Severidade deve ser CRITICAL, HIGH, MEDIUM, LOW ou INFO")
         settings.risk_overrides[rule] = severity
-    if any((add_path, remove_path, ignore_rule, unignore_rule, risk, suppress_finding, unsuppress_finding)):
+    changed = any((add_path, remove_path, ignore_rule, unignore_rule, risk, suppress_finding,
+                   suppress_rule, unsuppress_finding))
+    if changed:
         settings.save()
+    if list_suppressions:
+        _print_suppressions(settings)
+        return
     console.print_json(json.dumps({
         "watch_paths": settings.watch_paths,
         "ignored_rules": settings.ignored_rules,
@@ -200,19 +380,52 @@ def configure(
     }, ensure_ascii=False))
 
 
+def _print_suppressions(settings: Settings) -> None:
+    from atlas.suppressions import active_suppressions, expires_in_days
+
+    suppressions = active_suppressions(settings)
+    if not suppressions:
+        console.print("[yellow]Nenhuma supressão ativa.[/yellow]")
+        return
+    database = Database()
+    table = Table(title=f"{len(suppressions)} supressão(ões) ativa(s)")
+    for column in ("Regra", "Arquivo", "Motivo", "Expira em"):
+        table.add_column(column)
+    for entry in suppressions:
+        finding = database.latest_code_finding_by_fingerprint(str(entry.get("fingerprint", "")))
+        if finding is not None:
+            try:
+                shown = str(Path(finding.file_path).resolve())
+            except OSError:
+                shown = finding.file_path
+            rule = finding.rule_id
+        else:
+            rule, shown = "(fingerprint sem finding ativo)", entry.get("fingerprint", "")[:12]
+        remaining = expires_in_days(entry)
+        expires = f"{remaining} dia(s)" if remaining is not None else "expirada"
+        table.add_row(rule, shown, str(entry.get("reason", "")), expires)
+    console.print(table)
+
+
 @app.command()
 def report(
     project: Path | None = typer.Option(None, "--project", "-p", help="Projeto específico; omitido inclui todos."),
-    output_format: str = typer.Option("md", "--format", "-f", help="Formato: md, html ou json."),
+    output_format: str = typer.Option("md", "--format", "-f", help="Formato: md, html, json ou sarif."),
     output: Path | None = typer.Option(None, "--output", "-o", help="Diretório de destino; padrão Downloads."),
 ) -> None:
     """Gera um relatório sanitizado do ATLAS."""
-    from atlas.report import generate_html_report, generate_json_report, generate_markdown_report
+    from atlas.report import (
+        generate_html_report,
+        generate_json_report,
+        generate_markdown_report,
+        generate_sarif_report,
+    )
 
     normalized = output_format.casefold()
-    if normalized not in {"md", "markdown", "html", "json"}:
-        raise typer.BadParameter("Formato deve ser md, html ou json")
-    generator = {"html": generate_html_report, "json": generate_json_report}.get(normalized, generate_markdown_report)
+    if normalized not in {"md", "markdown", "html", "json", "sarif"}:
+        raise typer.BadParameter("Formato deve ser md, html, json ou sarif")
+    generator = {"html": generate_html_report, "json": generate_json_report,
+                 "sarif": generate_sarif_report}.get(normalized, generate_markdown_report)
     selected = project.expanduser().resolve() if project else None
     path = generator(Database(), selected, output.expanduser().resolve() if output else None)
     console.print(f"[green]Relatório ATLAS criado:[/] {path}")
@@ -222,6 +435,8 @@ def report(
 def scan_project(
     project: Path = typer.Argument(Path.cwd(), help="Projeto para analisar; padrao: pasta atual."),
     output_format: str = typer.Option("table", "--format", "-f", help="table ou json."),
+    fail_on: Severity | None = typer.Option(None, "--fail-on", case_sensitive=False,
+                                            help="Retorna código 2 quando houver severidade igual ou maior (uso em CI)."),
 ) -> None:
     """Executa uma análise local única de um projeto, sem abrir a TUI."""
     from atlas.code_watch import CodeWatchdog
@@ -239,8 +454,11 @@ def scan_project(
     if watchdog.state.status == "ERROR":
         console.print(f"[red]A análise falhou:[/] {watchdog.state.error}")
         raise typer.Exit(1)
+    active = [item for item in database.code_findings(str(project)) if item.state not in {"RESOLVED", "SUPPRESSED"}]
     if output_format.casefold() == "json":
         typer.echo(render_json_report(database, project))
+        if _exceeds_threshold(fail_on, active):
+            raise typer.Exit(2)
         return
 
     unavailable = [item for item in watchdog.state.availability if item.status == "NOT_INSTALLED"]
@@ -272,6 +490,8 @@ def scan_project(
         table.add_row(item.state, item.severity, f"{item.confidence}/100", item.rule_id, relative,
                       str(item.line or "-"), item.description, item.scanner)
     console.print(table)
+    if _exceeds_threshold(fail_on, active):
+        raise typer.Exit(2)
 
 
 @app.command()
@@ -351,17 +571,46 @@ def watch(
             run_watch_tui(targets[0])
 
 
+def _show_monitor_logs(read_log, log_path: Path, limit: int, follow: bool) -> None:
+    lines = read_log(limit)
+    if not lines:
+        console.print(f"[yellow]Nenhum log em {log_path} ainda.[/yellow] Inicie com [b]atlas monitor start[/b].")
+        return
+    console.print(f"[bold cyan]ATLAS Monitor · log[/] ({log_path})")
+    for line in lines:
+        console.print(line, highlight=False)
+    if not follow:
+        return
+    console.print("[dim]Acompanhando em tempo real — Ctrl+C para sair.[/dim]")
+    seen = len(lines)
+    try:
+        while True:
+            time.sleep(0.5)
+            current = read_log(0)
+            if len(current) > seen:
+                for line in current[seen:]:
+                    console.print(line, highlight=False)
+                seen = len(current)
+            elif len(current) < seen:
+                seen = len(current)
+    except KeyboardInterrupt:
+        console.print("\n[dim]Encerrado.[/dim]")
+
+
 @app.command()
 def monitor(
-    action: str = typer.Argument("status", help="start, stop, status, events ou install"),
+    action: str = typer.Argument("status", help="start, stop, status, events, logs ou install"),
     watch: list[Path] | None = typer.Option(None, "--watch", "-w", help="Caminho observado; pode ser repetido."),
     startup: bool = typer.Option(False, "--startup", help="Instala inicialização automática no login."),
     limit: int = typer.Option(25, "--limit", min=1, max=500),
+    follow: bool = typer.Option(False, "--follow", "-f", help="Acompanha o log em tempo real (Ctrl+C para sair)."),
 ) -> None:
     """Controla o monitor defensivo contínuo."""
     from atlas.monitor import (
+        MONITOR_LOG,
         install_startup,
         is_running,
+        read_monitor_log,
         read_state,
         start_background,
         stop_background,
@@ -387,11 +636,14 @@ def monitor(
                           event.kind, event.component, event.detail)
         console.print(table)
         return
+    if action == "logs":
+        _show_monitor_logs(read_monitor_log, MONITOR_LOG, limit, follow)
+        return
     if action == "stop":
         console.print("[green]Monitor finalizado.[/green]" if stop_background() else "[yellow]Monitor não estava ativo.[/yellow]")
         return
     if action not in {"start", "install"}:
-        raise typer.BadParameter("Ação deve ser start, stop, status, events ou install")
+        raise typer.BadParameter("Ação deve ser start, stop, status, events, logs ou install")
     roots = _monitor_roots(watch)
     settings = Settings.load()
     settings.watch_paths = [str(root) for root in roots]
@@ -464,11 +716,8 @@ def security(
         for item in ordered:
             table.add_row(f"[{colors[item.severity]}]{item.severity}[/]", item.title, item.component, item.evidence, item.risk, item.recommendation)
         console.print(table)
-    if fail_on:
-        order = [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW, Severity.INFO]
-        threshold = order.index(fail_on)
-        if any(order.index(Severity(item.severity)) <= threshold for item in scan.findings):
-            raise typer.Exit(2)
+    if _exceeds_threshold(fail_on, scan.findings):
+        raise typer.Exit(2)
 
 
 @app.command()

@@ -6,7 +6,6 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-DEFAULT_AGENT_MODEL = "deepseek-v4-flash-free"
 DEFAULT_OLLAMA_MODEL = "qwen2.5-coder:3b"
 
 
@@ -30,13 +29,22 @@ def config_dir() -> Path:
     return target
 
 
+def settings_path() -> Path:
+    """Return the location of the global ``settings.json`` file."""
+    return config_dir() / "settings.json"
+
+
+def is_first_run() -> bool:
+    """Return ``True`` while no global configuration has been saved yet."""
+    return not settings_path().exists()
+
+
 @dataclass(slots=True)
 class Settings:
     watch_paths: list[str] = field(default_factory=list)
     secret_scan_max_files: int = 4000
     secret_scan_max_bytes: int = 1_000_000
     splash_seconds: float = 0.8
-    agent_model: str = DEFAULT_AGENT_MODEL
     monitor_interval_seconds: float = 3.0
     monitor_security_interval_seconds: int = 900
     watchdog_debounce_seconds: float = 2.0
@@ -51,16 +59,16 @@ class Settings:
 
     @classmethod
     def load(cls) -> Settings:
-        path = config_dir() / "settings.json"
+        path = settings_path()
         if not path.exists():
             return cls()
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
                 return cls()
+            # Retired keys (for example the legacy ``agent_model``) are silently
+            # discarded because only current dataclass fields are kept.
             allowed = {key: raw[key] for key in asdict(cls()) if key in raw}
-            if allowed.get("agent_model") == "nemotron-3-ultra-free":
-                allowed["agent_model"] = DEFAULT_AGENT_MODEL
             for key in ("watch_paths", "ignored_rules"):
                 values = allowed.get(key, [])
                 allowed[key] = [item[:2000] for item in values if isinstance(item, str)][:1000] if isinstance(values, list) else []
@@ -95,7 +103,7 @@ class Settings:
             for key, default in (("notifications_enabled", True), ("silent_mode", False), ("ai_review_enabled", False)):
                 if not isinstance(allowed.get(key, default), bool):
                     allowed[key] = default
-            for key, default in (("agent_model", DEFAULT_AGENT_MODEL), ("ollama_model", DEFAULT_OLLAMA_MODEL)):
+            for key, default in (("ollama_model", DEFAULT_OLLAMA_MODEL),):
                 value = allowed.get(key, default)
                 allowed[key] = value.strip()[:160] if isinstance(value, str) and value.strip() else default
             return cls(**allowed)
@@ -103,7 +111,7 @@ class Settings:
             return cls()
 
     def save(self) -> None:
-        path = config_dir() / "settings.json"
+        path = settings_path()
         temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
         try:
             temporary.write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")

@@ -23,6 +23,43 @@ from atlas.system import docker_inventory, services
 STATE_PATH = data_dir() / "monitor.json"
 STOP_PATH = data_dir() / "monitor.stop"
 START_LOCK_PATH = data_dir() / "monitor.start.lock"
+LOG_DIR = data_dir() / "logs"
+MONITOR_LOG = LOG_DIR / "monitor.log"
+MONITOR_LOG_OLD = LOG_DIR / "monitor.log.old"
+MAX_LOG_BYTES = 2_000_000
+
+
+def rotate_monitor_log(max_bytes: int = MAX_LOG_BYTES) -> None:
+    """Keep a single ``.old`` copy once the resident log grows too large."""
+    try:
+        if MONITOR_LOG.exists() and MONITOR_LOG.stat().st_size > max_bytes:
+            os.replace(MONITOR_LOG, MONITOR_LOG_OLD)
+    except OSError:
+        pass
+
+
+def log_monitor(message: str) -> None:
+    """Append a sanitized timestamped line to the resident monitor log."""
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        rotate_monitor_log()
+        stamp = datetime.now(UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        with MONITOR_LOG.open("a", encoding="utf-8", errors="replace") as stream:
+            stream.write(f"[{stamp}] {redact(message)}\n")
+    except OSError:
+        pass
+
+
+def read_monitor_log(limit: int = 100) -> list[str]:
+    """Return the last ``limit`` lines from the resident monitor log."""
+    for candidate in (MONITOR_LOG, MONITOR_LOG_OLD):
+        try:
+            if candidate.exists():
+                lines = candidate.read_text(encoding="utf-8", errors="replace").splitlines()
+                return lines[-limit:] if limit > 0 else lines
+        except OSError:
+            continue
+    return []
 SKIP_PARTS = {
     ".git", ".hg", ".svn", ".cache", ".pytest_cache", "__pycache__", "node_modules",
     ".venv", "venv", "AppData", "$Recycle.Bin", "System Volume Information",
@@ -142,6 +179,10 @@ class MonitorService:
         self._firewall: dict[str, bool] = {}
         self._threats: set[tuple[str, str]] = set()
         self._persistence: dict[str, str] = {}
+
+    def _monitor_error(self, component: str, exc: Exception) -> None:
+        self.record("monitor-error", Severity.LOW, component, type(exc).__name__)
+        log_monitor(f"erro em {component}: {type(exc).__name__}: {exc}")
 
     def record(self, kind: str, severity: Severity, component: str, detail: str, risk: str = "") -> None:
         self.database.add_monitor_event(MonitorEvent(
@@ -302,6 +343,7 @@ class MonitorService:
         except (OSError, ValueError, TypeError, subprocess.SubprocessError):
             pass
         self.record("monitor", Severity.INFO, "ATLAS", f"monitor iniciado em {len(self.roots)} caminho(s)")
+        log_monitor(f"monitor iniciado (pid={os.getpid()}) em {len(self.roots)} caminho(s)")
         last_services = last_docker = last_threats = last_persistence = last_scan = time.monotonic()
         failure = ""
         try:
@@ -311,52 +353,60 @@ class MonitorService:
                     try:
                         collector()
                     except Exception as exc:
-                        self.record("monitor-error", Severity.LOW, collector.__name__, type(exc).__name__)
+                        self._monitor_error(collector.__name__, exc)
                 if started - last_services >= 15:
                     try:
                         self._snapshot_services()
                     except Exception as exc:
-                        self.record("monitor-error", Severity.LOW, "services", type(exc).__name__)
+                        self._monitor_error("services", exc)
                     last_services = started
                 if started - last_docker >= 30:
                     try:
                         self._snapshot_docker()
                     except Exception as exc:
-                        self.record("monitor-error", Severity.LOW, "docker", type(exc).__name__)
+                        self._monitor_error("docker", exc)
                     last_docker = started
                 if started - last_threats >= 30:
                     try:
                         self._snapshot_threats()
                     except Exception as exc:
-                        self.record("monitor-error", Severity.LOW, "antimalware", type(exc).__name__)
+                        self._monitor_error("antimalware", exc)
                     last_threats = started
                 if started - last_persistence >= 60:
                     try:
                         self._snapshot_persistence()
                     except Exception as exc:
-                        self.record("monitor-error", Severity.LOW, "persistence", type(exc).__name__)
+                        self._monitor_error("persistence", exc)
                     last_persistence = started
                 if started - last_scan >= self.settings.monitor_security_interval_seconds:
                     try:
                         SecurityScanner(self.database).scan(self.roots)
                     except Exception as exc:
-                        self.record("monitor-error", Severity.LOW, "security-scan", type(exc).__name__)
+                        self._monitor_error("security-scan", exc)
                     last_scan = started
-                STATE_PATH.write_text(json.dumps(_state_payload(os.getpid(), self.roots)), encoding="utf-8")
+                try:
+                    STATE_PATH.write_text(json.dumps(_state_payload(os.getpid(), self.roots)), encoding="utf-8")
+                except OSError as exc:
+                    log_monitor(f"falha ao atualizar heartbeat de estado: {type(exc).__name__}: {exc}")
                 time.sleep(max(1.0, self.settings.monitor_interval_seconds))
         except Exception as exc:
             failure = type(exc).__name__
             self.record("monitor-error", Severity.MEDIUM, "daemon", failure, "O monitor encontrou um erro e foi encerrado.")
+            log_monitor(f"erro fatal no daemon: {type(exc).__name__}: {exc}")
         finally:
             for observer in self.observers:
                 observer.stop()
             for observer in self.observers:
                 observer.join(timeout=5)
             self.record("monitor", Severity.INFO, "ATLAS", "monitor finalizado")
+            log_monitor(f"monitor finalizado (pid={os.getpid()})" + (f" com erro {failure}" if failure else ""))
             final = _state_payload(os.getpid(), self.roots, "error" if failure else "stopped")
             if failure:
                 final["error"] = failure
-            STATE_PATH.write_text(json.dumps(final), encoding="utf-8")
+            try:
+                STATE_PATH.write_text(json.dumps(final), encoding="utf-8")
+            except OSError:
+                pass
             STOP_PATH.unlink(missing_ok=True)
 
 
@@ -395,8 +445,22 @@ def start_background(roots: list[Path]) -> int:
         if os.name == "nt":
             # CREATE_NO_WINDOW alone prevents console flashes on Windows.
             flags = subprocess.CREATE_NO_WINDOW
-        process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                   close_fds=True, creationflags=flags, env=child_env)
+        try:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            rotate_monitor_log()
+            log_stream = MONITOR_LOG.open("a", encoding="utf-8", errors="replace")
+        except OSError:
+            log_stream = None
+        try:
+            process = subprocess.Popen(
+                command, stdin=subprocess.DEVNULL,
+                stdout=log_stream or subprocess.DEVNULL, stderr=log_stream or subprocess.DEVNULL,
+                close_fds=True, creationflags=flags, env=child_env,
+            )
+        finally:
+            if log_stream is not None:
+                log_stream.close()
+        log_monitor(f"monitor residente iniciado (pid={process.pid}) para {len(roots)} caminho(s)")
         STATE_PATH.write_text(json.dumps(_state_payload(process.pid, roots, "starting")), encoding="utf-8")
         return process.pid
     finally:

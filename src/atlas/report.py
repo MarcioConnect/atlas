@@ -390,6 +390,99 @@ def generate_json_report(
     return path
 
 
+SARIF_LEVELS = {"CRITICAL": "error", "HIGH": "error", "MEDIUM": "warning", "LOW": "note", "INFO": "note"}
+
+
+def _sarif_location(project: Path, item: object) -> dict[str, object]:
+    raw = getattr(item, "file_path", None) or getattr(item, "component", "system")
+    try:
+        uri = Path(str(raw)).resolve().relative_to(project).as_posix()
+    except (OSError, ValueError):
+        uri = Path(str(raw)).name or str(raw)
+    location: dict[str, object] = {"artifactLocation": {"uri": _safe(uri)}}
+    line = getattr(item, "line", None)
+    if line:
+        location["region"] = {"startLine": int(line)}
+    return {"physicalLocation": location}
+
+
+def render_sarif_report(database: Database, project_path: Path | None = None, now: datetime | None = None) -> str:
+    """Render a SARIF 2.1.0 report for code scanning integrations (e.g. GitHub)."""
+    from atlas import __version__
+
+    generated = now or datetime.now().astimezone()
+    projects = [project_path.resolve()] if project_path else _known_projects(database)
+    if not projects:
+        projects = [Path.cwd().resolve()]
+    rules: dict[str, dict[str, object]] = {}
+    results: list[dict[str, object]] = []
+
+    def add_result(item: object, project: Path, rule_id: str) -> None:
+        severity = str(getattr(item, "severity", "INFO")).upper()
+        rules.setdefault(rule_id, {
+            "id": rule_id,
+            "name": rule_id,
+            "shortDescription": {"text": _safe(getattr(item, "description", getattr(item, "title", "Finding")))},
+            "helpUri": "https://github.com/anomalyco/opencode",
+        })
+        results.append({
+            "ruleId": rule_id,
+            "level": SARIF_LEVELS.get(severity, "warning"),
+            "message": {"text": _safe(getattr(item, "description", getattr(item, "title", "Finding")))},
+            "locations": [_sarif_location(project, item)],
+            "properties": {
+                "scanner": _safe(getattr(item, "scanner", "ATLAS Security Scanner")),
+                "severity": _safe(severity),
+                "confidence": getattr(item, "confidence", None),
+                "state": _safe(getattr(item, "state", "")),
+            },
+        })
+
+    for project in projects:
+        scan = database.latest_code_scan(str(project))
+        findings = database.code_findings(str(project)) if scan else []
+        for item in findings:
+            if item.state in {"RESOLVED", "SUPPRESSED"}:
+                continue
+            add_result(item, project, str(getattr(item, "rule_id", "unknown")))
+
+    system_scan = database.latest_scan()
+    for item in (system_scan.findings if system_scan else []):
+        add_result(item, projects[0], str(getattr(item, "check_id", "unknown")))
+
+    payload = {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {"driver": {
+                "name": "ATLAS Security Agent",
+                "informationUri": "https://github.com/anomalyco/opencode",
+                "version": __version__,
+                "rules": list(rules.values()),
+            }},
+            "results": results,
+            "invocations": [{"executionSuccessful": True, "endTimeUtc": generated.astimezone().isoformat()}],
+        }],
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def generate_sarif_report(
+    database: Database,
+    project_path: Path | None = None,
+    output_dir: Path | None = None,
+    now: datetime | None = None,
+) -> Path:
+    generated = now or datetime.now().astimezone()
+    destination = output_dir or downloads_dir()
+    destination.mkdir(parents=True, exist_ok=True)
+    path = destination / f"atlas-report-{generated:%Y-%m-%d}.sarif"
+    if path.exists():
+        path = destination / f"atlas-report-{generated:%Y-%m-%d-%H%M%S}.sarif"
+    path.write_text(render_sarif_report(database, project_path, generated), encoding="utf-8")
+    return path
+
+
 def _html_dashboard(report: str, summary: dict[str, int], generated: datetime) -> str:
     """Build a standalone responsive report with an executive dashboard."""
     score = f"{summary['score']}/100" if summary["score"] >= 0 else "N/D"

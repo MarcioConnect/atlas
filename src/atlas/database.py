@@ -202,6 +202,53 @@ class Database:
                 query = query.where(CodeFinding.state == state)
             return list(db.scalars(query.order_by(desc(CodeFinding.last_seen)).limit(limit)))
 
+    def latest_code_finding_by_rule(self, rule_id: str, file_hint: str | None = None) -> CodeFinding | None:
+        """Resolve the most recent active finding for a rule (optionally by file)."""
+        needle = rule_id.casefold()
+        with self.session() as db:
+            candidates = list(db.scalars(
+                select(CodeFinding)
+                .where(CodeFinding.state != "RESOLVED", (
+                    CodeFinding.rule_id == rule_id) | (CodeFinding.scanner == rule_id))
+                .order_by(desc(CodeFinding.last_seen)).limit(1000)
+            ))
+        if needle and not candidates:
+            with self.session() as db:
+                candidates = [
+                    item for item in db.scalars(
+                        select(CodeFinding)
+                        .where(CodeFinding.state != "RESOLVED")
+                        .order_by(desc(CodeFinding.last_seen)).limit(1000)
+                    )
+                    if item.rule_id.casefold() == needle or item.scanner.casefold() == needle
+                ]
+        if file_hint:
+            hint = file_hint.replace("\\", "/").casefold().lstrip("./")
+            for item in candidates:
+                if str(item.file_path).replace("\\", "/").casefold().endswith(hint):
+                    return item
+            return None
+        return candidates[0] if candidates else None
+
+    def latest_code_finding_by_fingerprint(self, fingerprint: str) -> CodeFinding | None:
+        with self.session() as db:
+            return db.scalars(
+                select(CodeFinding)
+                .where(CodeFinding.fingerprint == fingerprint)
+                .order_by(desc(CodeFinding.last_seen)).limit(1)
+            ).first()
+
+    def apply_suppression(self, fingerprint: str, reason: str) -> int:
+        """Mark every stored finding with ``fingerprint`` as suppressed."""
+        with self.session() as db:
+            items = list(db.scalars(select(CodeFinding).where(CodeFinding.fingerprint == fingerprint)))
+            for item in items:
+                item.suppressed = True
+                item.suppression_reason = reason[:500]
+                item.state = "SUPPRESSED"
+            db.commit()
+            return len(items)
+
     def mark_code_findings_unverified(self, project_path: str, scan_id: int) -> None:
         """Preserve unresolved findings when an entire scan fails unexpectedly."""
         with self.session() as db:
