@@ -14,8 +14,8 @@
 > A defensive terminal agent for Windows.
 
 ATLAS watches the projects you choose, analyzes changed code with local scanners,
-and surfaces new risks without depending on Codex, an editor, or AI. It keeps
-history and shows when a scan was incomplete.
+and surfaces new risks without depending on Codex or an editor. It keeps history
+and shows when a scan was incomplete.
 
 ```powershell
 atlas scan "C:\MyProject"        # one-time analysis
@@ -24,9 +24,8 @@ atlas monitor start              # monitor saved projects in the background
 ```
 
 `atlas` opens the panel; `atlas report --format html` generates a report.
-Ollama is optional and only analyzes data on request. ATLAS does not exploit
-flaws, does not replace Microsoft Defender, and does not guarantee the absence
-of vulnerabilities.
+ATLAS does not exploit flaws, does not replace Microsoft Defender, and does not
+guarantee the absence of vulnerabilities.
 
 ![ATLAS Security Watchdog TUI](docs/screenshots/atlas-watchdog.png)
 
@@ -222,20 +221,6 @@ Run one scan without opening the TUI:
 atlas watch "C:\My Project" --once
 ```
 
-Enable optional local AI review with Ollama:
-
-```powershell
-winget install Ollama.Ollama
-ollama pull qwen2.5-coder:3b
-atlas watch "C:\My Project" --ai
-```
-
-`--ai` only enables the review capability. Scans do not call the model
-automatically; select a finding in the TUI and press `A` to explicitly request
-a review. ATLAS sends sanitized, short source excerpts exclusively to
-`127.0.0.1:11434`, requests structured JSON, exposes no tools to the model, and
-never executes model output. Use `--ai-model MODEL` to select another local model.
-
 Use `--silent` to keep the watcher quiet, or persist rule exclusions with
 `--ignore-rule`:
 
@@ -266,8 +251,7 @@ atlas init --path "C:\My Project" --yes --no-scan
 ```
 
 When something does not work, run `atlas doctor` to check Python, optional
-scanners, local Ollama, the resident monitor, the Windows login task, and the
-local database. Failures are listed with a suggested fix; `atlas doctor --no-fix`
+scanners, the resident monitor, the Windows login task, and the local database. Failures are listed with a suggested fix; `atlas doctor --no-fix`
 only reports without prompting.
 
 The resident monitor writes a redacted log to
@@ -284,9 +268,8 @@ atlas monitor logs --limit 200 --follow
 `atlas monitor start` runs in the background and starts one local code Watchdog
 per existing configured path. All non-ignored file changes are recorded as
 sanitized metadata; supported source/configuration files are debounced, scanned
-locally, and reconciled as `NEW`/`EXISTING`/`RESOLVED`. AI remains opt-in with
-`atlas watch --ai`. Use `atlas monitor status` and `atlas monitor events` to
-inspect the resident service.
+locally, and reconciled as `NEW`/`EXISTING`/`RESOLVED`. Use `atlas monitor status`
+and `atlas monitor events` to inspect the resident service.
 
 ## Scanners
 
@@ -297,7 +280,6 @@ inspect the resident service.
 | Microsoft Defender | Malware/spyware state and detection history on Windows | Built into Windows |
 | Executable inspection | Streaming SHA-256 and Authenticode status; unsigned is not proof of malware | Built into Windows |
 | YARA | Optional scanning with selected local rules and bounded runtime | `py -m pip install 'atlas-security-agent[yara]'` |
-| Ollama AI | Explicit review of a selected, sanitized finding or user-requested chat context | `winget install Ollama.Ollama` |
 | Semgrep | Multi-language static analysis | `python -m pip install semgrep` |
 | Bandit | Python security linting | `python -m pip install bandit` |
 | pip-audit | Python dependencies | `python -m pip install pip-audit` |
@@ -306,7 +288,6 @@ inspect the resident service.
 | Trivy | Dependencies, containers, misconfigurations, secrets | `winget install AquaSecurity.Trivy` |
 
 Some dependency scanners may need network access to refresh advisory databases.
-This does not involve an LLM or AI tokens.
 
 ## CI integration
 
@@ -394,7 +375,6 @@ Keyboard shortcuts:
 - `W`: start or stop watching
 - `S`: run a full manual scan
 - `Enter`: open details for the selected finding
-- `A`: request a local AI review of the selected finding when started with `--ai`
 - `R`: refresh
 - `Q`: quit
 
@@ -440,9 +420,7 @@ are replaced with `[REDACTED]` or omitted entirely.
 Security Guard uses heuristic patterns on supported scanned source files to flag
 possible prompt injection, exfiltration and encoded instruction sequences.
 It is not a semantic security guarantee or a global interceptor for browsers,
-emails, tools or other agents. The Ollama reviewer receives source as untrusted
-data and has no execution tools; prompt instructions alone cannot guarantee that
-a model will ignore every injection. Results still require human review.
+emails, tools or other agents. Results still require human review.
 
 For ordinary file activity, ATLAS stores only sanitized metadata: timestamp,
 event type, severity, and path. It does not store file contents. Sensitive
@@ -456,11 +434,9 @@ filenames are replaced with `[SENSITIVE_FILE]`.
 - Protected machine-wide checks may be incomplete without Administrator access;
   ATLAS reports reduced coverage rather than failing.
 - `atlas agent` opens the integrated panel. `--advanced` remains as a compatibility
-  alias. Chat uses Ollama when available, otherwise local rules.
+  alias.
 - The native scanner is intentionally conservative and is not a replacement for
   specialist scanners or a professional security review.
-- Ollama improves context but can still make mistakes; deterministic scanners
-  remain authoritative and AI review is clearly labelled.
 - ATLAS complements Microsoft Defender. It is not an antivirus engine and cannot
   guarantee detection of every malware, spyware, rootkit or zero-day attack.
 - Defender telemetry can require Administrator access under corporate policy;
