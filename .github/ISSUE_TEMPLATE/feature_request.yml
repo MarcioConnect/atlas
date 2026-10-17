@@ -1,0 +1,31 @@
+name: Sugestão de funcionalidade
+description: Sugira uma ideia para o ATLAS
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        O ATLAS é uma ferramenta defensiva e somente leitura por padrão. Sugestões
+        que envolvam exploração ativa de falhas ou execução de código não confiável
+        estão fora de escopo.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema ou necessidade
+      description: Qual problema esta funcionalidade resolveria?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Solução proposta
+      description: Descreva a funcionalidade que você gostaria de ver.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas consideradas
+    validations:
+      required: false

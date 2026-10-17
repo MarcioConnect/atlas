@@ -1,0 +1,50 @@
+name: Relatório de bug
+description: Reporte um comportamento incorreto do ATLAS
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Obrigado por reportar. Não inclua credenciais, tokens, chaves,
+        caminhos privados ou conteúdo de `.env`. Sanitize toda a evidência.
+  - type: input
+    id: version
+    attributes:
+      label: Versão do ATLAS
+      description: Saída de `atlas --version` ou `.\ATLAS-Security-Agent.exe --version`.
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Versão do Windows e PowerShell
+      placeholder: "Windows 11 23H2, PowerShell 7.4"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: O que aconteceu?
+      description: Descreva o comportamento observado e o que você esperava.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Passos para reproduzir
+      placeholder: |
+        1. Execute `atlas watch "C:\Projeto"`
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs sanitizados
+      description: Cole a saída relevante de `atlas doctor` ou `atlas monitor logs`, removendo dados sensíveis.
+      render: text
+    validations:
+      required: false

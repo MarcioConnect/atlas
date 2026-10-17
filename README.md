@@ -1,8 +1,17 @@
 # ATLAS v0.2.0
 
-Agente defensivo de terminal para Windows. O ATLAS observa projetos escolhidos,
-analisa código alterado com scanners locais e destaca riscos novos sem depender
-de Codex, editor ou IA. Mantém histórico e mostra quando um scan ficou incompleto.
+[![CI](https://github.com/MarcioConnect/atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/MarcioConnect/atlas/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/MarcioConnect/atlas/actions/workflows/codeql.yml/badge.svg)](https://github.com/MarcioConnect/atlas/actions/workflows/codeql.yml)
+[![Release](https://img.shields.io/github/v/release/MarcioConnect/atlas)](https://github.com/MarcioConnect/atlas/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
+[![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6.svg)](#requisitos)
+
+> Agente defensivo de terminal para Windows.
+
+O ATLAS observa projetos escolhidos, analisa código alterado com scanners locais
+e destaca riscos novos sem depender de Codex, editor ou IA. Mantém histórico e
+mostra quando um scan ficou incompleto.
 
 ```powershell
 atlas scan "C:\MeuProjeto"        # análise pontual
@@ -12,14 +21,51 @@ atlas monitor start               # monitora projetos salvos em segundo plano
 
 `atlas` abre o painel; `atlas report --format html` gera um relatório.
 Ollama é opcional e só analisa dados mediante solicitação. O ATLAS não explora
-falhas, não substitui o Microsoft Defender e não garante ausência de vulnerabilidades.
+falhas, não substitui o Microsoft Defender e não garante ausência de
+vulnerabilidades.
 
-## Resultado confiável
+![ATLAS Security Watchdog TUI](docs/screenshots/atlas-watchdog.png)
+
+## Sumário
+
+- [Sobre](#sobre)
+- [Download rápido (Windows)](#download-rápido-windows)
+- [Requisitos](#requisitos)
+- [Instalação](#instalação)
+- [Início rápido](#início-rápido)
+- [Primeira execução e diagnóstico](#primeira-execução-e-diagnóstico)
+- [Monitoramento contínuo](#monitoramento-contínuo)
+- [Scanners](#scanners)
+- [Integração com CI](#integração-com-ci)
+- [Suprimindo findings](#suprimindo-findings)
+- [Configuração por projeto](#configuração-por-projeto)
+- [Relatórios](#relatórios)
+- [TUI do Watchdog](#tui-do-watchdog)
+- [Arquivos suportados](#arquivos-suportados)
+- [Ciclo de vida de findings](#ciclo-de-vida-de-findings)
+- [Privacidade e segurança](#privacidade-e-segurança)
+- [Limitações](#limitações)
+- [Desenvolvimento](#desenvolvimento)
+- [Contribuindo](#contribuindo)
+- [Licença](#licença)
+
+## Sobre
+
+### Resultado confiável
 
 Cada finding mostra severidade, confiança heurística e scanner. `RESOLVED` exige
 que o scanner execute com sucesso e reanalise o arquivo/escopo; caso contrário,
 o estado é `UNVERIFIED`. Scans parciais e scanners ausentes aparecem como lacunas
 de cobertura. A baseline inicial não dispara alertas antigos como novos.
+
+### Estado da versão
+
+O fluxo arquivo alterado → debounce → scanner local → comparação → SQLite → TUI
+foi validado em Windows. A suíte atual passa 2.794 testes em cada ambiente
+isolado com Python 3.11 e 3.14. Os resultados e limites estão em
+[`IMPLEMENTATION_REPORT.md`](IMPLEMENTATION_REPORT.md). Há também um teste que
+consolida uma rajada de 1.000 eventos em um scan. Muitos casos são sintéticos e
+não provam precisão em todos os projetos. Scanners externos continuam opcionais.
 
 ## Download rápido (Windows)
 
@@ -34,8 +80,8 @@ Depois, no PowerShell:
 .\ATLAS-Security-Agent.exe monitor start
 ```
 
-The release includes `ATLAS-Security-Agent.exe.sha256`. Verify that the download
-was not corrupted before running it:
+A release inclui `ATLAS-Security-Agent.exe.sha256`. Verifique que o download não
+foi corrompido antes de executar:
 
 ```powershell
 $expected = (Get-Content .\ATLAS-Security-Agent.exe.sha256).Split(' ')[0]
@@ -44,96 +90,79 @@ if ($actual -ne $expected) { throw "ATLAS checksum mismatch" }
 "ATLAS checksum OK"
 ```
 
-The v0.2.0 executable is not Authenticode-signed; Windows may show a publisher
-warning. A checksum detects corruption but does not independently prove who
-published the file. See [`docs/SIGNING.md`](docs/SIGNING.md).
+O executável v0.2.0 não possui assinatura Authenticode; o Windows pode exibir um
+aviso de publicador. Um checksum detecta corrupção, mas não prova por si só quem
+publicou o arquivo. Consulte [`docs/SIGNING.md`](docs/SIGNING.md).
 
-Não precisa instalar Python, Git ou abrir navegador. A logo usada pelo
-executável está disponível em [`assets/atlas.ico`](assets/atlas.ico).
+Não precisa instalar Python, Git ou abrir navegador. A logo usada pelo executável
+está disponível em [`assets/atlas.ico`](assets/atlas.ico).
 
 Para instalar como pacote Python e usar o comando `atlas`, siga a seção de
 instalação abaixo.
 
-## Estado da versão
+## Requisitos
 
-O fluxo arquivo alterado → debounce → scanner local → comparação → SQLite → TUI
-foi validado em Windows. A suíte atual passa 2.794 testes em cada ambiente
-isolado com Python 3.11 e 3.14. Os resultados e limites estão em
-[`IMPLEMENTATION_REPORT.md`](IMPLEMENTATION_REPORT.md).
-Há também um teste que consolida uma rajada de 1.000 eventos em um scan. Muitos
-casos são sintéticos e não provam precisão em todos os projetos. Scanners externos
-continuam opcionais.
+- Windows 10 ou Windows 11
+- PowerShell 7 e Windows Terminal recomendados
+- Python 3.11 ou superior
+- Privilégios de Administrador **não** são necessários para analisar código-fonte
 
-## Screenshot
+Scanners opcionais são detectados em tempo de execução. Ferramentas ausentes
+nunca impedem o scanner ATLAS Native nem outro scanner disponível.
 
-![ATLAS Security Watchdog TUI](docs/screenshots/atlas-watchdog.png)
+## Instalação
 
-See [`docs/screenshots/README.md`](docs/screenshots/README.md) for reproducible
-capture steps.
-
-## Requirements
-
-- Windows 10 or Windows 11
-- PowerShell 7 and Windows Terminal recommended
-- Python 3.11 or newer
-- Administrator privileges are **not** required to scan source code
-
-Optional scanners are detected at runtime. Missing tools never stop the ATLAS
-Native scanner or another available scanner.
-
-## Installation
-
-To install from the source ZIP, use **Code > Download ZIP** on GitHub, extract
-it, open PowerShell in that folder, and run:
+Para instalar a partir do ZIP do código-fonte, use **Code > Download ZIP** no
+GitHub, extraia, abra o PowerShell na pasta e execute:
 
 ```powershell
 py -m pip install .
 atlas --version
 ```
 
-Git is not required. To upgrade a previously installed copy, use
-`py -m pip install --upgrade .` from the newly extracted release folder.
+Git não é necessário. Para atualizar uma cópia já instalada, use
+`py -m pip install --upgrade .` a partir da pasta extraída mais recente.
 
-If the GitHub release provides `ATLAS-Security-Agent.exe`, Python is not needed
-for normal use. Download the executable and run:
+Se a release do GitHub fornecer `ATLAS-Security-Agent.exe`, Python não é
+necessário para o uso normal. Baixe o executável e execute:
 
 ```powershell
 .\ATLAS-Security-Agent.exe --version
 .\ATLAS-Security-Agent.exe monitor start
 ```
 
-For development:
+Para desenvolvimento:
 
 ```powershell
 python -m pip install -e ".[dev]"
 ```
 
-To build the standalone Windows executable with the ATLAS icon and process
-identity:
+Para gerar o executável Windows autônomo com o ícone e a identidade de processo
+do ATLAS:
 
 ```powershell
 .\tools\build_windows.ps1
 .\release\ATLAS-Security-Agent.exe monitor start
 ```
 
-The resident monitor then appears in Task Manager as
-`ATLAS-Security-Agent.exe`, with the bundled ATLAS icon instead of `python.exe`.
-The one-file Windows build can appear as two grouped ATLAS processes while it
-is active: the PyInstaller launcher and the resident agent. Both use the ATLAS
-name and icon.
+O monitor residente então aparece no Gerenciador de Tarefas como
+`ATLAS-Security-Agent.exe`, com o ícone do ATLAS em vez de `python.exe`. O build
+Windows em arquivo único pode aparecer como dois processos ATLAS agrupados
+enquanto estiver ativo: o launcher do PyInstaller e o agente residente. Ambos
+usam o nome e o ícone do ATLAS.
 
-Optional Windows notifications and Python scanners:
+Notificações do Windows e scanners Python opcionais:
 
 ```powershell
 python -m pip install ".[desktop]"
 python -m pip install ".[python-scanners]"
 ```
 
-The runtime dependency source of truth is `pyproject.toml`.
+A fonte da verdade das dependências de runtime é o `pyproject.toml`.
 
-## Quick start
+## Início rápido
 
-Run a one-time project scan without opening the monitoring TUI:
+Faça um scan pontual do projeto sem abrir a TUI de monitoramento:
 
 ```powershell
 atlas scan
@@ -141,55 +170,58 @@ atlas scan "C:\Meu Projeto"
 atlas scan "C:\Meu Projeto" --format json
 ```
 
-The command scans the current directory by default. It lists active findings
-and warns when optional scanners are missing. Source files over 2 MB are skipped
-to bound resource use; they are counted, and the result is marked as partial
-coverage rather than implying the project was fully analyzed.
+O comando analisa o diretório atual por padrão. Ele lista findings ativos e avisa
+quando scanners opcionais estão ausentes. Arquivos-fonte acima de 2 MB são
+ignorados para limitar o uso de recursos; eles são contados e o resultado é
+marcado como cobertura parcial, em vez de sugerir que o projeto foi totalmente
+analisado.
 
-Start continuous monitoring with the interactive view:
+Inicie o monitoramento contínuo com a visão interativa:
 
 ```powershell
 atlas watch "C:\Meu Projeto"
 ```
 
-For continuous monitoring of every saved project in the background:
+Para monitorar continuamente todos os projetos salvos em segundo plano:
 
 ```powershell
 atlas monitor start
 atlas monitor status
 ```
 
-ATLAS opens a Textual TUI in the current terminal. Keep it running while using
-any editor or coding agent. Relevant changes are coalesced with a two-second
-debounce, scanned locally, reconciled with SQLite, and displayed as `NEW`,
-`EXISTING`, `RESOLVED`, or `UNVERIFIED`. A finding is only marked `RESOLVED`
-after its scanner succeeds and rechecks the relevant file/scope. A failed,
-partial, unavailable, or timed-out scanner leaves the prior finding unverified.
-The scan health indicates `COMPLETE` or `PARTIAL`; scanner installation alone
-does not count as a completed analysis.
+O ATLAS abre uma TUI Textual no terminal atual. Mantenha-a em execução enquanto
+usa qualquer editor ou agente de código. Alterações relevantes são agrupadas com
+um debounce de dois segundos, analisadas localmente, reconciliadas com o SQLite
+e exibidas como `NEW`, `EXISTING`, `RESOLVED` ou `UNVERIFIED`. Um finding só é
+marcado como `RESOLVED` depois que o scanner tem sucesso e reexamina o
+arquivo/escopo relevante. Um scanner com falha, parcial, indisponível ou
+expirado deixa o finding anterior não verificado. A saúde do scan indica
+`COMPLETE` ou `PARTIAL`; apenas instalar o scanner não conta como análise
+concluída.
 
-To monitor every existing project path saved in ATLAS, omit the path or use
-`--all`:
+Para monitorar todos os caminhos de projeto existentes salvos no ATLAS, omita o
+caminho ou use `--all`:
 
 ```powershell
 atlas watch
 atlas watch --all
 ```
 
-The multi-project TUI shows each project's status, scan counters, and new
-findings in one screen. If no paths are configured, first run for example:
+A TUI multi-projeto mostra o status de cada projeto, contadores de scan e novos
+findings em uma única tela. Se nenhum caminho estiver configurado, execute por
+exemplo:
 
 ```powershell
 atlas monitor start --watch "C:\Meu Projeto"
 ```
 
-Run one scan without opening the TUI:
+Execute um scan sem abrir a TUI:
 
 ```powershell
 atlas watch "C:\Meu Projeto" --once
 ```
 
-Enable optional local AI review with Ollama:
+Habilite a revisão opcional de IA local com Ollama:
 
 ```powershell
 winget install Ollama.Ollama
@@ -197,14 +229,15 @@ ollama pull qwen2.5-coder:3b
 atlas watch "C:\Meu Projeto" --ai
 ```
 
-`--ai` only enables the review capability. Scans do not call the model
-automatically; select a finding in the TUI and press `A` to explicitly request
-a review. ATLAS sends sanitized, short source excerpts exclusively to
-`127.0.0.1:11434`, requests structured JSON, exposes no tools to the model, and
-never executes model output. Use `--ai-model MODEL` to select another local model.
+`--ai` apenas habilita a capacidade de revisão. Os scans não chamam o modelo
+automaticamente; selecione um finding na TUI e pressione `A` para solicitar uma
+revisão explícita. O ATLAS envia trechos curtos e sanitizados do código
+exclusivamente para `127.0.0.1:11434`, solicita JSON estruturado, não expõe
+ferramentas ao modelo e nunca executa a saída do modelo. Use `--ai-model MODEL`
+para selecionar outro modelo local.
 
-Use `--silent` to keep the watcher quiet, or persist rule exclusions with
-`--ignore-rule`:
+Use `--silent` para manter o watcher silencioso, ou persista exclusões de regras
+com `--ignore-rule`:
 
 ```powershell
 atlas watch "C:\Meu Projeto" --silent
@@ -212,84 +245,116 @@ atlas watch "C:\Meu Projeto" --notify
 atlas watch "C:\Meu Projeto" --ignore-rule hardcoded-secret
 ```
 
-The Watchdog uses an in-memory file snapshot to prioritize changed files and
-lines after the first observation. The native scanner rechecks each changed
-file in full so an unchanged finding is not falsely marked resolved. Optional
-scanners remain scoped to changed files; unavailable or failed scanners are
-reported without stopping the watch. A `LISTEN` port is an observation, not
-proof of external reachability. The Defender integration is read-only during
-normal scans and its visibility depends on Windows policy and permissions.
-When `winotify` is installed, new findings also generate a Windows desktop
-notification; otherwise the TUI remains the source of truth.
+O Watchdog usa um snapshot de arquivos em memória para priorizar arquivos e
+linhas alterados após a primeira observação. O scanner nativo reexamina cada
+arquivo alterado por completo, para que um finding inalterado não seja marcado
+falsamente como resolvido. Scanners opcionais permanecem limitados aos arquivos
+alterados; scanners indisponíveis ou com falha são reportados sem interromper o
+watch. Uma porta `LISTEN` é uma observação, não prova de acessibilidade externa.
+A integração com o Defender é somente leitura durante scans normais e sua
+visibilidade depende da política e das permissões do Windows. Quando o `winotify`
+está instalado, novos findings também geram uma notificação de área de trabalho
+do Windows; caso contrário, a TUI continua sendo a fonte da verdade.
 
-## First run and diagnostics
+## Primeira execução e diagnóstico
 
-On a fresh install, ATLAS can find your Git repositories, choose what to watch,
-run a first scan, and optionally register the background monitor in one step:
+Em uma instalação nova, o ATLAS pode encontrar seus repositórios Git, escolher o
+que monitorar, executar um primeiro scan e, opcionalmente, registrar o monitor em
+segundo plano em uma única etapa:
 
 ```powershell
 atlas init
 atlas init --path "C:\Meu Projeto" --yes --no-scan
 ```
 
-When something does not work, run `atlas doctor` to check Python, optional
-scanners, local Ollama, the resident monitor, the Windows login task, and the
-local database. Failures are listed with a suggested fix; `atlas doctor --no-fix`
-only reports without prompting.
+Quando algo não funcionar, execute `atlas doctor` para verificar Python, scanners
+opcionais, Ollama local, o monitor residente, a tarefa de login do Windows e o
+banco local. As falhas são listadas com uma correção sugerida; `atlas doctor
+--no-fix` apenas reporta, sem perguntar.
 
-The resident monitor writes a redacted log to
-`%LOCALAPPDATA%\ATLAS\logs\monitor.log` (rotated once to `monitor.log.old`).
-Inspect it with:
+O monitor residente grava um log com dados sensíveis removidos em
+`%LOCALAPPDATA%\ATLAS\logs\monitor.log` (rotacionado uma vez para
+`monitor.log.old`). Inspecione com:
 
 ```powershell
 atlas monitor logs
 atlas monitor logs --limit 200 --follow
 ```
 
-## Suppressing findings
+## Monitoramento contínuo
 
-Accepted-risk findings can be suppressed from the CLI or directly in the TUI.
-A suppression records the fingerprint, a redacted reason, and an expiry.
+`atlas monitor start` roda em segundo plano e inicia um Watchdog de código local
+por caminho configurado existente. Todas as alterações de arquivos não ignorados
+são registradas como metadados sanitizados; arquivos-fonte/configuração
+suportados são agrupados por debounce, analisados localmente e reconciliados
+como `NEW`/`EXISTING`/`RESOLVED`. A IA permanece opt-in com `atlas watch --ai`.
+Use `atlas monitor status` e `atlas monitor events` para inspecionar o serviço
+residente.
 
-```powershell
-atlas config --suppress-rule python-eval --file app.py --days 30 --reason "revisado"
-atlas config --list-suppressions
-```
+## Scanners
 
-In the Watchdog TUI, select a finding and press `X` to open the suppression
-dialog (reason required). Suppressed findings no longer fail a build and are
-excluded from new alerts.
+| Scanner | Escopo | Instalação opcional |
+|---|---|---|
+| ATLAS Native | Segredos, APIs arriscadas, binds expostos, noções básicas de Docker | Integrado |
+| ATLAS Security Guard | Prompt injection, cadeias de exfiltração, ofuscação, abuso de ferramentas | Integrado |
+| Microsoft Defender | Estado de malware/spyware e histórico de detecções no Windows | Integrado ao Windows |
+| Executable inspection | SHA-256 em streaming e status Authenticode; não assinado não é prova de malware | Integrado ao Windows |
+| YARA | Scan opcional com regras locais selecionadas e tempo de execução limitado | `py -m pip install 'atlas-security-agent[yara]'` |
+| Ollama AI | Revisão explícita de um finding sanitizado selecionado ou de contexto de chat solicitado | `winget install Ollama.Ollama` |
+| Semgrep | Análise estática multi-linguagem | `python -m pip install semgrep` |
+| Bandit | Lint de segurança para Python | `python -m pip install bandit` |
+| pip-audit | Dependências Python | `python -m pip install pip-audit` |
+| npm audit | Dependências npm | Instale Node.js/npm |
+| PSScriptAnalyzer | Análise de PowerShell | `Install-Module PSScriptAnalyzer -Scope CurrentUser` |
+| Trivy | Dependências, contêineres, más configurações, segredos | `winget install AquaSecurity.Trivy` |
 
-## CI integration
+Alguns scanners de dependências podem precisar de acesso à rede para atualizar
+bancos de avisos. Isso não envolve LLM nem tokens de IA.
 
-`atlas scan --fail-on` returns exit code `2` when a finding meets the severity
-threshold, so it can gate a pipeline:
+## Integração com CI
+
+`atlas scan --fail-on` retorna o código de saída `2` quando um finding atinge o
+limite de severidade, permitindo bloquear um pipeline:
 
 ```powershell
 atlas scan . --fail-on HIGH
 atlas scan . --fail-on HIGH --format json
 ```
 
-For GitHub code scanning, generate SARIF and upload it:
+Para o code scanning do GitHub, gere SARIF e faça o upload:
 
 ```powershell
 atlas report --format sarif --project . --output .\reports
 ```
 
-Install a Git `pre-commit` hook that blocks commits with findings at or above a
-threshold:
+Instale um hook `pre-commit` do Git que bloqueia commits com findings no nível ou
+acima de um limite:
 
 ```powershell
 atlas install-hook --project .
 atlas install-hook --fail-on MEDIUM --force
 ```
 
-Remove `.git/hooks/pre-commit` to disable the hook.
+Remova `.git/hooks/pre-commit` para desabilitar o hook.
 
-## Per-project configuration
+## Suprimindo findings
 
-A repository can tune the scanner without touching the global settings by
-adding a `.atlas.toml` file at its root:
+Findings de risco aceito podem ser suprimidos pela CLI ou diretamente na TUI. Uma
+supressão registra a fingerprint, um motivo sanitizado e uma expiração.
+
+```powershell
+atlas config --suppress-rule python-eval --file app.py --days 30 --reason "revisado"
+atlas config --list-suppressions
+```
+
+Na TUI do Watchdog, selecione um finding e pressione `X` para abrir o diálogo de
+supressão (motivo obrigatório). Findings suprimidos não falham mais um build e
+são excluídos dos novos alertas.
+
+## Configuração por projeto
+
+Um repositório pode ajustar o scanner sem alterar as configurações globais
+adicionando um arquivo `.atlas.toml` na sua raiz:
 
 ```toml
 [scan]
@@ -297,22 +362,23 @@ ignored_rules = ["python-eval", "B602"]
 risk_overrides = { B602 = "LOW" }
 ```
 
-Project overrides are merged with the user settings and applied to every scan
-(CLI and Watchdog). Invalid files are ignored, never fatal.
+Substituições por projeto são mescladas com as configurações do usuário e
+aplicadas a todo scan (CLI e Watchdog). Arquivos inválidos são ignorados, nunca
+fatais.
 
-## Generate Report
+## Relatórios
 
-Use **4. Generate Report** in the launcher (or activate it with the keyboard)
-to write a local Markdown report containing the latest system Security Score,
-Watchdog findings, scanner status, evidence, risk, recommendations, and the
-sanitized file-change history for each known project. Without `--project`, the
-report consolidates all configured and previously scanned projects. The
-file is saved in your Windows Downloads folder as
-`atlas-report-YYYY-MM-DD.md`; an existing report is never overwritten and a
-time suffix is used when necessary. All report fields are sanitized and
-sensitive values are replaced with `[REDACTED]`.
+Use **4. Generate Report** no launcher (ou ative-o pelo teclado) para gravar um
+relatório Markdown local contendo o último Security Score do sistema, findings
+do Watchdog, status dos scanners, evidências, risco, recomendações e o histórico
+sanitizado de alterações de arquivos de cada projeto conhecido. Sem `--project`,
+o relatório consolida todos os projetos configurados e previamente analisados. O
+arquivo é salvo na pasta Downloads do Windows como `atlas-report-YYYY-MM-DD.md`;
+um relatório existente nunca é sobrescrito e um sufixo de horário é usado quando
+necessário. Todos os campos do relatório são sanitizados e valores sensíveis são
+substituídos por `[REDACTED]`.
 
-Reports can also be generated directly from the CLI:
+Os relatórios também podem ser gerados diretamente pela CLI:
 
 ```powershell
 atlas report --format md
@@ -322,150 +388,88 @@ atlas report --format sarif
 atlas report --project "C:\Meu Projeto" --output "C:\Relatorios"
 ```
 
-## Watchdog TUI
+## TUI do Watchdog
 
-Views: Overview, Watchdog, New Findings, All Findings, Resolved, Scan, and
-Settings.
+Visões: Overview, Watchdog, New Findings, All Findings, Resolved, Scan e Settings.
 
-Keyboard shortcuts:
+Atalhos de teclado:
 
-- `W`: start or stop watching
-- `S`: run a full manual scan
-- `Enter`: open details for the selected finding
-- `A`: request a local AI review of the selected finding when started with `--ai`
-- `R`: refresh
-- `Q`: quit
+- `W`: iniciar ou parar o watch
+- `S`: executar um scan manual completo
+- `Enter`: abrir detalhes do finding selecionado
+- `A`: solicitar uma revisão de IA local do finding selecionado quando iniciado com `--ai`
+- `R`: atualizar
+- `Q`: sair
 
-## Supported files
+## Arquivos suportados
 
-ATLAS records create, modify, move, and delete events for every non-ignored
-file. Security scans prioritize `.html`, `.py`, `.js`, `.ts`, `.tsx`, `.jsx`,
-`.ps1`, `.bat`, `.json`, `.yaml`, `.yml`, `Dockerfile`, and Compose files.
-File contents are never stored in the activity history.
+O ATLAS registra eventos de criação, modificação, movimentação e exclusão para
+todo arquivo não ignorado. Os scans de segurança priorizam `.html`, `.py`, `.js`,
+`.ts`, `.tsx`, `.jsx`, `.ps1`, `.bat`, `.json`, `.yaml`, `.yml`, `Dockerfile` e
+arquivos Compose. O conteúdo dos arquivos nunca é armazenado no histórico de
+atividades.
 
-It ignores VCS metadata, `node_modules`, virtual environments, `site-packages`,
-Python caches, test/build artifacts, `dist`, and `build`.
+Ele ignora metadados de VCS, `node_modules`, ambientes virtuais, `site-packages`,
+caches do Python, artefatos de teste/build, `dist` e `build`.
 
-## Scanners
+## Ciclo de vida de findings
 
-| Scanner | Scope | Optional install |
-|---|---|---|
-| ATLAS Native | Secrets, risky APIs, exposed binds, Docker basics | Built in |
-| ATLAS Security Guard | Prompt injection, exfiltration chains, obfuscation, tool abuse | Built in |
-| Microsoft Defender | Malware/spyware state and detection history on Windows | Built into Windows |
-| Executable inspection | Streaming SHA-256 and Authenticode status; unsigned is not proof of malware | Built into Windows |
-| YARA | Optional scanning with selected local rules and bounded runtime | `py -m pip install 'atlas-security-agent[yara]'` |
-| Ollama AI | Explicit review of a selected, sanitized finding or user-requested chat context | `winget install Ollama.Ollama` |
-| Semgrep | Multi-language static analysis | `python -m pip install semgrep` |
-| Bandit | Python security linting | `python -m pip install bandit` |
-| pip-audit | Python dependencies | `python -m pip install pip-audit` |
-| npm audit | npm dependencies | Install Node.js/npm |
-| PSScriptAnalyzer | PowerShell analysis | `Install-Module PSScriptAnalyzer -Scope CurrentUser` |
-| Trivy | Dependencies, containers, misconfigurations, secrets | `winget install AquaSecurity.Trivy` |
+Uma fingerprint SHA-256 estável usa scanner, regra, caminho de arquivo
+normalizado relativo ao projeto e uma identidade de contexto sanitizada do
+código-fonte. Ela sobrevive a inserções de linhas não relacionadas sem armazenar
+código ou valores de segredos. A baseline inicial do Watch é aceita como
+EXISTING, de modo que apenas regressões posteriores se tornam NEW. Em cada scan:
 
-Some dependency scanners may need network access to refresh advisory databases.
-This does not involve an LLM or AI tokens.
+- `NEW`: não estava ativo no estado medido anterior ou reapareceu;
+- `EXISTING`: ainda presente;
+- `RESOLVED`: ausente de um escopo scanner/arquivo que foi medido com sucesso.
+- `UNVERIFIED`: o scanner responsável falhou, foi ignorado ou não pôde confirmar cobertura.
 
-## Other commands
+Um scanner indisponível não tem cobertura e, portanto, não pode marcar
+acidentalmente seus findings antigos como resolvidos.
 
-```powershell
-atlas                         # native ATLAS dashboard + conversation TUI
-atlas init                    # assistente de primeiro uso: acha projetos Git, monitora e faz o 1º scan
-atlas doctor                  # diagnostica scanners, Ollama, monitor, tarefa de login e banco
-atlas scan [PROJECT]          # análise pontual local; --format json opcional
-atlas scan [PROJECT] --fail-on HIGH   # retorna código 2 quando há severidade >= limite (CI)
-atlas agent                   # conversa do agente ATLAS no terminal
-atlas agent --advanced        # alias compatível para o painel integrado
-atlas dashboard               # system security dashboard
-atlas security                # read-only machine scan
-atlas malware status          # Defender protection and detection status
-atlas malware scan "C:\Path" # custom Defender scan without automatic remediation
-atlas malware inspect "C:\Path\program.exe" # hash/signature metadata; does not execute the file
-atlas malware yara "C:\Path" --rules "C:\Trusted-YARA-Rules" # optional local rules only
-atlas monitor start           # background events + code Watchdogs for all configured paths
-atlas monitor install         # start now and register ATLAS for Windows login
-atlas monitor status
-atlas monitor events
-atlas monitor logs --follow   # acompanha o log do monitor residente
-atlas monitor stop
-atlas config                  # mostra caminhos, regras ignoradas e severidades
-atlas report --format sarif   # relatório SARIF 2.1.0 para integração com CI
-atlas install-hook            # instala hook pre-commit que roda o scan
-atlas start                   # controlled operational session
-atlas stop
-atlas history
-```
+A confiança é uma heurística de regra/contexto para triagem, não uma
+probabilidade calibrada. Scanners ausentes e arquivos-fonte elegíveis acima de
+2 MB são mostrados como lacunas de cobertura; eles nunca são descritos como
+analisados de forma limpa. Resultados incrementais do Watchdog cobrem
+explicitamente apenas arquivos alterados e não são reportados como um scan
+completo do projeto. A baseline inicial é aceita uma vez por projeto; inícios
+subsequentes do Watchdog ainda reportam findings recém-descobertos.
 
-Persist projects and customize findings without editing files manually:
+## Privacidade e segurança
 
-```powershell
-atlas config --add-path "C:\Meu Projeto"
-atlas config --ignore-rule RULE-ID
-atlas config --unignore-rule RULE-ID
-atlas config --risk RULE-ID=HIGH
-atlas config --suppress-finding FINGERPRINT="Reason" --suppression-days 30
-atlas config --unsuppress-finding FINGERPRINT
-```
+O ATLAS é somente leitura por padrão e nunca explora vulnerabilidades. As
+evidências são sanitizadas antes da exibição ou armazenamento. Senhas, tokens,
+chaves de API, cookies, strings de conexão, chaves privadas, valores de `.env` e
+formatos comuns de credenciais são substituídos por `[REDACTED]` ou omitidos
+totalmente.
 
-## Finding lifecycle
+O Security Guard usa padrões heurísticos nos arquivos-fonte suportados para
+sinalizar possíveis sequências de prompt injection, exfiltração e instruções
+codificadas. Não é uma garantia semântica de segurança nem um interceptor global
+para navegadores, e-mails, ferramentas ou outros agentes. O revisor Ollama
+recebe o código-fonte como dado não confiável e não possui ferramentas de
+execução; instruções de prompt sozinhas não garantem que um modelo ignorará toda
+injeção. Os resultados ainda exigem revisão humana.
 
-A stable SHA-256 fingerprint uses scanner, rule, normalized project-relative
-file path, and a sanitized source-context identity. It survives unrelated line
-insertions without storing source or secret values. The initial Watch baseline
-is accepted as EXISTING, so only later regressions become NEW. On every scan:
+Para atividades comuns de arquivos, o ATLAS armazena apenas metadados
+sanitizados: timestamp, tipo de evento, severidade e caminho. Ele não armazena o
+conteúdo dos arquivos. Nomes de arquivos sensíveis são substituídos por
+`[SENSITIVE_FILE]`.
 
-- `NEW`: not active in the previous measured state, or it reappeared;
-- `EXISTING`: still present;
-- `RESOLVED`: absent from a scanner/file scope that was successfully measured.
-- `UNVERIFIED`: the responsible scanner failed, was skipped, or could not confirm coverage.
+## Limitações
 
-An unavailable scanner has no coverage and therefore cannot accidentally mark
-its older findings as resolved.
+- Windows é a plataforma primária suportada; outros sistemas são best effort.
+- A precisão e a cobertura dos scanners opcionais dependem das versões e regras instaladas.
+- A configuração `auto` do Semgrep e os bancos de vulnerabilidades podem exigir acesso à rede.
+- Verificações protegidas em todo o sistema podem ficar incompletas sem acesso de Administrador; o ATLAS reporta cobertura reduzida em vez de falhar.
+- `atlas agent` abre o painel integrado. `--advanced` permanece como alias de compatibilidade. O chat usa Ollama quando disponível; caso contrário, regras locais.
+- O scanner nativo é intencionalmente conservador e não substitui scanners especializados nem uma revisão profissional de segurança.
+- O Ollama melhora o contexto, mas ainda pode errar; scanners determinísticos permanecem autoritativos e a revisão de IA é claramente rotulada.
+- O ATLAS complementa o Microsoft Defender. Não é um motor antimalware e não pode garantir a detecção de todo malware, spyware, rootkit ou ataque zero-day.
+- A telemetria do Defender pode exigir acesso de Administrador sob política corporativa; o ATLAS reporta essa limitação em vez de contorná-la.
 
-Confidence is a rule/context heuristic for triage, not a calibrated probability.
-Missing scanners and eligible source files over 2 MB are shown as coverage gaps;
-they are never described as cleanly analyzed.
-Incremental Watchdog results explicitly cover only changed files and are not
-reported as a complete project scan. The initial baseline is accepted once per
-project; subsequent Watchdog starts still report newly discovered findings.
-
-## Privacy and safety
-
-ATLAS is read-only by default and never exploits vulnerabilities. Evidence is
-sanitized before display or storage. Passwords, tokens, API keys, cookies,
-connection strings, private keys, `.env` values, and common credential formats
-are replaced with `[REDACTED]` or omitted entirely.
-
-Security Guard uses heuristic patterns on supported scanned source files to flag
-possible prompt injection, exfiltration and encoded instruction sequences.
-It is not a semantic security guarantee or a global interceptor for browsers,
-emails, tools or other agents. The Ollama reviewer receives source as untrusted
-data and has no execution tools; prompt instructions alone cannot guarantee that
-a model will ignore every injection. Results still require human review.
-
-For ordinary file activity, ATLAS stores only sanitized metadata: timestamp,
-event type, severity, and path. It does not store file contents. Sensitive
-filenames are replaced with `[SENSITIVE_FILE]`.
-
-## v0.1 limitations
-
-- Windows is the primary supported platform; other systems are best effort.
-- Optional scanner accuracy and coverage depend on installed versions and rules.
-- Semgrep `auto` configuration and vulnerability databases can require network access.
-- Protected machine-wide checks may be incomplete without Administrator access;
-  ATLAS reports reduced coverage rather than failing.
-- `atlas agent` opens the integrated panel. `--advanced` remains as a compatibility
-  alias. Chat uses Ollama when available, otherwise local rules.
-- The native scanner is intentionally conservative and is not a replacement for
-  specialist scanners or a professional security review.
-- Ollama improves context but can still make mistakes; deterministic scanners
-  remain authoritative and AI review is clearly labelled.
-- ATLAS complements Microsoft Defender. It is not an antivirus engine and cannot
-  guarantee detection of every malware, spyware, rootkit or zero-day attack.
-- Defender telemetry can require Administrator access under corporate policy;
-  ATLAS reports this limitation instead of bypassing it.
-
-## Development
+## Desenvolvimento
 
 ```powershell
 python -m pytest -q
@@ -475,17 +479,17 @@ atlas watch . --once
 .\release\ATLAS-Security-Agent.exe --version
 ```
 
-`atlas monitor start` runs in the background and starts one local code Watchdog
-per existing configured path. All non-ignored file changes are recorded as
-sanitized metadata; supported source/configuration files are debounced, scanned locally, and
-reconciled as `NEW`/`EXISTING`/`RESOLVED`. AI remains opt-in with `atlas watch --ai`. Use
-`atlas monitor status` and `atlas monitor events` to inspect the resident
-service.
+Veja [CHANGELOG.md](CHANGELOG.md) para as notas de release. Detalhes de
+contribuição estão em [CONTRIBUTING.md](CONTRIBUTING.md) e o código de conduta
+em [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
-See [CHANGELOG.md](CHANGELOG.md) for release notes.
+## Contribuindo
 
-## Publicação
+Contribuições são bem-vindas. Leia [CONTRIBUTING.md](CONTRIBUTING.md) para o
+fluxo de desenvolvimento e [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) para as
+regras de convivência. Para relatar uma vulnerabilidade, use um GitHub Security
+Advisory privado, conforme descrito em [SECURITY.md](SECURITY.md).
 
-O código-fonte, o executável Windows e seu SHA-256 ficam na [página de releases](https://github.com/MarcioConnect/atlas/releases).
-O executável não possui assinatura Authenticode; verifique o hash e consulte
-[`docs/SIGNING.md`](docs/SIGNING.md). O ATLAS ainda é software alfa.
+## Licença
+
+Distribuído sob a licença MIT. Veja [LICENSE](LICENSE) para mais detalhes.

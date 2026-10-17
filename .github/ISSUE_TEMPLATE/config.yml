@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Reportar uma vulnerabilidade (Security Advisory)
+    url: https://github.com/MarcioConnect/atlas/security/advisories/new
+    about: Não publique credenciais ou evidências de máquina em issues públicas. Use um advisory privado.
+  - name: Documentação
+    url: https://github.com/MarcioConnect/atlas#readme
+    about: Leia o README antes de abrir uma issue.
