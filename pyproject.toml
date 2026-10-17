@@ -34,7 +34,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<10", "build>=1.2,<2", "twine>=6,<7", "ruff>=0.12,<1", "pyinstaller>=6.15,<7", "pillow>=11,<13"]
+dev = ["pytest>=8,<10", "build>=1.2,<2", "twine>=6,<8", "ruff>=0.12,<1", "pyinstaller>=6.15,<7", "pillow>=11,<13"]
 desktop = ["winotify>=1.1"]
 python-scanners = ["bandit>=1.9,<2", "pip-audit>=2.10,<3", "semgrep>=1.177,<2"]
 yara = ["yara-python>=4.5,<5"]
