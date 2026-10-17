@@ -1,4 +1,4 @@
-"""Pruned traversal shared by local scanners; never descend into dependencies."""
+"""File traversal shared by the local scanners."""
 import os
 import stat
 from pathlib import Path

@@ -1,4 +1,4 @@
-"""Multi-project orchestration for the local source Watchdog."""
+"""Runs the source watchdog for several projects at once."""
 
 from __future__ import annotations
 

@@ -110,7 +110,7 @@ class NormalizedFinding:
 
 
 def _finding_context(path: Path, line: int | None) -> str:
-    """Build a secret-safe identity that survives unrelated line insertions."""
+    """Context around the finding line, used for its fingerprint."""
     if not line or line < 1:
         return ""
     try:
@@ -273,7 +273,7 @@ def _json(text: str) -> Any:
 
 
 class LocalCodeScanners:
-    """Adapter layer for optional local tools plus a small always-on native pass."""
+    """Runs the optional local tools and the built-in pass."""
 
     def __init__(self, project: Path) -> None:
         self.project = project.expanduser().resolve()
@@ -433,7 +433,7 @@ class LocalCodeScanners:
 
 
     def _syntax(self, targets: list[Path], result: CodeScanResult) -> None:
-        """Parse whole changed files without importing or executing user code."""
+        """Parse files as text; never import or execute them."""
         scanner = "ATLAS Syntax"
         self._availability(result, scanner, True)
         coverage: set[str] = set()
@@ -467,7 +467,7 @@ class LocalCodeScanners:
         python_files = [path for path in targets if path.suffix.lower() == ".py"]
         if not executable or not python_files:
             return
-        # Isolated rules: no project plugins, execution, installation or auto-fix.
+        # --isolated: no project config, plugins or auto-fix.
         process = _run([executable, "check", "--isolated", "--select", "F", "--output-format", "json",
                         *map(str, python_files)], self.project)
         payload = _json(process.stdout)
@@ -628,7 +628,7 @@ class LocalCodeScanners:
     def _native_python_ast(
         path: Path, content: str, result: CodeScanResult, allowed_lines: set[int] | None,
     ) -> None:
-        """Find executable Python constructs without matching comments or strings."""
+        """Flag risky constructs found via the AST."""
         try:
             tree = ast.parse(content, filename=str(path))
         except (SyntaxError, ValueError):

@@ -72,7 +72,7 @@ class ProjectEventHandler(FileSystemEventHandler):
 
 
 class CodeWatchdog:
-    """Debounced, token-free source security watcher."""
+    """Watches a project and re-scans files as they change."""
 
     def __init__(
         self,
@@ -170,7 +170,7 @@ class CodeWatchdog:
         self._wake.set()
 
     def _record_file_event(self, path: Path, event_type: str) -> None:
-        """Persist metadata for every observed file without reading its content."""
+        """Record observed files without reading their content."""
         name = path.name.casefold()
         sensitive = name == ".env" or any(word in name for word in ("secret", "token", "password", "credential"))
         component = str(path.parent / "[SENSITIVE_FILE]") if sensitive else str(path)
@@ -353,7 +353,7 @@ class CodeWatchdog:
         return result
 
     def _seed_snapshots(self) -> None:
-        """Capture the full-scan baseline used by later incremental passes."""
+        """Store the baseline used by later incremental scans."""
         for path in discover_files(self.project):
             try:
                 self._snapshots[str(path.resolve()).casefold()] = path.read_text(

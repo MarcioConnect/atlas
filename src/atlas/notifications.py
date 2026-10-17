@@ -1,4 +1,4 @@
-"""Best-effort Windows desktop notifications for new ATLAS findings."""
+"""Windows desktop notifications for new ATLAS findings."""
 
 from __future__ import annotations
 

@@ -38,7 +38,7 @@ def hook_script(fail_on: str = "HIGH") -> str:
 
 
 def install_pre_commit_hook(project: Path, fail_on: str = "HIGH", force: bool = False) -> tuple[bool, str]:
-    """Install a Git pre-commit hook that runs ``atlas scan`` on the project."""
+    """Install a pre-commit hook that runs ``atlas scan``."""
     project = project.expanduser().resolve()
     git_dir = _git_dir(project)
     if git_dir is None:
