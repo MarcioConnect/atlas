@@ -1,16 +1,21 @@
-# Permission model
+# Permissions
 
-ATLAS runs as the current user and does not request elevation for source scans,
-reports, configuration, or basic process/network snapshots. Protected Windows
-Defender telemetry, service inventory, firewall details, and some persistence
-locations may be unavailable under the current account; the application should
-report that reduced coverage instead of attempting to bypass access controls.
+For regular source scans and reports, ATLAS runs as your Windows user. It does
+not need administrator access to read the project you selected, save its own
+settings, or take basic process and network snapshots.
 
-The explicit `atlas malware scan PATH` command asks Microsoft Defender to scan a
-user-selected target with remediation disabled. ATLAS does not disable or change
-Defender, firewall, UAC, or execution policy settings.
+Some Windows details are protected. Defender history, service inventory,
+firewall settings, or persistence locations may not be visible to a standard
+account. When that happens, ATLAS reports reduced coverage; it does not try to
+get around Windows access controls.
 
-The background monitor and login startup integration create a per-user process
-or scheduled task. They do not request SYSTEM or administrator privileges.
-Reports are written to the selected output directory (Downloads by default).
-Ollama review uses loopback and is initiated only by an explicit user action.
+The explicit `atlas malware scan PATH` command asks Microsoft Defender to scan
+the path you provide, with remediation disabled. ATLAS does not turn Defender,
+the firewall, or UAC on or off, and it does not change PowerShell's execution
+policy.
+
+If you start the background monitor or enable start-at-login, ATLAS creates a
+process or scheduled task for your user account. It does not install a
+system-wide service or request administrator privileges. Reports go to the
+folder you choose (Downloads by default). An Ollama review runs only after you
+ask for one.

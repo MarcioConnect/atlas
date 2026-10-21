@@ -11,11 +11,12 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6.svg)](#requirements)
 
-> A defensive terminal agent for Windows.
+> A local security watchdog for Windows.
 
-ATLAS watches the projects you choose, analyzes changed code with local scanners,
-and surfaces new risks without depending on Codex or an editor. It keeps history
-and shows when a scan was incomplete.
+ATLAS keeps an eye on the projects you choose. When code changes, it runs the
+local scanners you have available and shows what is new, what is still there,
+and what it could not verify. You can use it from the terminal alongside your
+editor or coding assistant.
 
 ```powershell
 atlas scan "C:\MyProject"        # one-time analysis
@@ -23,9 +24,10 @@ atlas watch "C:\MyProject"       # terminal monitoring
 atlas monitor start              # monitor saved projects in the background
 ```
 
-`atlas` opens the panel; `atlas report --format html` generates a report.
-ATLAS does not exploit flaws, does not replace Microsoft Defender, and does not
-guarantee the absence of vulnerabilities.
+Run `atlas` to open the panel, or use `atlas report --format html` to make a
+report you can review or share. ATLAS only reports what its scanners can see:
+it does not exploit issues, replace Microsoft Defender, or prove that a project
+is free of vulnerabilities.
 
 ![ATLAS Security Watchdog TUI](docs/screenshots/atlas-watchdog.png)
 
@@ -54,25 +56,29 @@ guarantee the absence of vulnerabilities.
 
 ## About
 
-### Reliable results
+### What a result means
 
-Each finding shows severity, heuristic confidence, and scanner. `RESOLVED`
-requires that the scanner run successfully and re-analyze the file/scope;
-otherwise the state is `UNVERIFIED`. Partial scans and missing scanners appear
-as coverage gaps. The initial baseline does not surface old alerts as new.
+Each finding names the scanner, severity, and a rule-based confidence estimate.
+That estimate helps with triage; it is not a probability. ATLAS marks an issue
+`RESOLVED` only after the relevant scanner runs successfully and checks that
+file or scope again. If a scan fails or skips the file, the issue stays
+`UNVERIFIED`. Missing scanners and partial scans are shown as gaps, so an
+incomplete scan is not presented as a clean bill of health. The first scan sets
+the baseline; older findings do not show up as new alerts just because you
+started watching.
 
-### Release state
+### What we've tested
 
-The changed file → debounce → local scanner → comparison → SQLite → TUI flow has
-been validated on Windows. The current suite passes 2,794 tests in each isolated
-environment on Python 3.11 and 3.14. The results and limits are in
-[`IMPLEMENTATION_REPORT.md`](IMPLEMENTATION_REPORT.md). There is also a test that
-consolidates a burst of 1,000 events into a single scan. Many cases are synthetic
-and do not prove accuracy across all projects. External scanners remain optional.
+The file-change-to-report flow has been exercised on Windows. The full suite has
+passed 2,794 tests in separate environments on Python 3.11 and 3.14. The
+[`implementation report`](IMPLEMENTATION_REPORT.md) has the details. Some tests
+use synthetic projects, so passing them does not tell us how well ATLAS will
+work on every real project. External scanners are optional; the built-in checks
+still run without them.
 
 ## Quick download (Windows)
 
-Just want to use it? Download the ready-made executable from the release page:
+Want to try ATLAS without installing Python? Download the Windows executable:
 
 **[Download ATLAS-Security-Agent.exe — v0.2.0](https://github.com/MarcioConnect/atlas/releases/download/v0.2.0/ATLAS-Security-Agent.exe)**
 
@@ -93,9 +99,9 @@ if ($actual -ne $expected) { throw "ATLAS checksum mismatch" }
 "ATLAS checksum OK"
 ```
 
-The v0.2.0 executable is not Authenticode-signed; Windows may show a publisher
-warning. A checksum detects corruption but does not by itself prove who published
-the file. See [`docs/SIGNING.md`](docs/SIGNING.md).
+This executable is not Authenticode-signed, so Windows may show a publisher
+warning. The checksum can catch a damaged download, but it does not independently
+verify who published the file. See [how signing works](docs/SIGNING.md).
 
 You do not need to install Python, Git, or open a browser. The logo used by the
 executable is available at [`assets/atlas.ico`](assets/atlas.ico).
@@ -115,8 +121,8 @@ Native scanner or another available scanner.
 
 ## Installation
 
-To install from the source ZIP, use **Code > Download ZIP** on GitHub, extract
-it, open PowerShell in that folder, and run:
+To install from source, choose **Code > Download ZIP** on GitHub and extract the
+archive. Open PowerShell in the extracted folder and run:
 
 ```powershell
 py -m pip install .
@@ -173,10 +179,10 @@ atlas scan "C:\My Project"
 atlas scan "C:\My Project" --format json
 ```
 
-The command scans the current directory by default. It lists active findings
-and warns when optional scanners are missing. Source files over 2 MB are skipped
-to bound resource use; they are counted, and the result is marked as partial
-coverage rather than implying the project was fully analyzed.
+With no path given, ATLAS scans the current directory. It lists findings and
+lets you know if an optional scanner is missing. To keep scans bounded, files
+larger than 2 MB are skipped and counted as a coverage gap; the result is marked
+partial instead of implying those files were checked.
 
 Start continuous monitoring with the interactive view:
 
@@ -191,12 +197,13 @@ atlas monitor start
 atlas monitor status
 ```
 
-ATLAS opens a Textual TUI in the current terminal. Keep it running while using
-any editor or coding agent. Relevant changes are coalesced with a two-second
-debounce, scanned locally, reconciled with SQLite, and displayed as `NEW`,
-`EXISTING`, `RESOLVED`, or `UNVERIFIED`. A finding is only marked `RESOLVED`
-after its scanner succeeds and rechecks the relevant file/scope. A failed,
-partial, unavailable, or timed-out scanner leaves the prior finding unverified.
+ATLAS opens its dashboard in the current terminal. Leave it running while you
+work in your editor or coding assistant. It waits two seconds to group rapid
+file changes, scans locally, and updates the history in SQLite. Findings appear
+as `NEW`, `EXISTING`, `RESOLVED`, or `UNVERIFIED`. A finding is only marked
+`RESOLVED` after its scanner succeeds and rechecks the relevant file or scope.
+A failed, partial, unavailable, or timed-out scanner leaves the prior finding
+unverified.
 The scan health indicates `COMPLETE` or `PARTIAL`; scanner installation alone
 does not count as a completed analysis.
 

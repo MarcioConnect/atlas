@@ -1,12 +1,16 @@
 # Security policy
 
-ATLAS is defensive software and does not guarantee that a system or project is
-free of vulnerabilities. Please do not publish credentials, private logs, or
-machine-identifying evidence in a public issue.
+ATLAS is a defensive aid, not a guarantee that a project or computer is free of
+vulnerabilities. Scans can miss issues and can produce false positives.
 
-For a suspected vulnerability in ATLAS, open a private GitHub Security
-Advisory in the repository and include the affected version, reproduction
-steps, and sanitized evidence. Do not include real tokens, passwords, keys,
-cookies, connection strings, or private `.env` contents.
+## Reporting a vulnerability
 
-Only the latest tagged release is supported during the v0.x alpha phase.
+Please report suspected vulnerabilities through GitHub's private vulnerability
+reporting for this repository. Include the affected version, steps to reproduce,
+and evidence with personal or secret data removed. Please do not post working
+credentials, private logs, or identifying machine details in a public issue.
+
+For reports that need files to reproduce, remove real tokens, passwords, keys,
+cookies, connection strings, and `.env` values first.
+
+During the v0.x alpha period, only the latest tagged release is supported.
