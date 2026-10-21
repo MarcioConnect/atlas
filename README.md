@@ -454,7 +454,8 @@ atlas watch . --once
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes. Contribution details are in
 [CONTRIBUTING.md](CONTRIBUTING.md) and the code of conduct in
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). See the [documentation map](docs/README.md)
+for security, privacy, permissions, signing, and screenshot references.
 
 ## Contributing
 
