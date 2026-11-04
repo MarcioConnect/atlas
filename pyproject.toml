@@ -30,7 +30,7 @@ dependencies = [
   "SQLAlchemy>=2.0,<3",
   "textual>=7,<9",
   "typer>=0.16,<1",
-  "watchdog>=6,<7",
+  "watchdog>=6,<8",
 ]
 
 [project.optional-dependencies]
